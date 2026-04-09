@@ -1,11 +1,16 @@
+from fastapi.testclient import TestClient
+
 from app.core.enums import AssessmentModeType, MasteryBand, ScoringMethod
+from app.main import app
 from app.seeds.reference_data import get_reference_module, get_reference_progress_snapshot
+from app.services.scoring import REFERENCE_QUESTION_ID, score_reference_attempt
 from app.schemas.domain import (
     FeedbackResult,
     QuestionCreate,
     RubricCriterion,
     RubricDefinition,
     ScoreResult,
+    StudentAttemptCreate,
 )
 
 
@@ -113,3 +118,55 @@ def test_reference_progress_snapshot_matches_seeded_module() -> None:
 
     assert snapshot["topic_slug"] == "valuation"
     assert snapshot["concept_slug"] == "enterprise-value-vs-equity-value"
+
+
+def test_scoring_service_returns_interview_ready_for_strong_answer() -> None:
+    attempt = StudentAttemptCreate.model_validate(
+        {
+            "question_id": REFERENCE_QUESTION_ID,
+            "session_id": "strong-answer-session",
+            "response": {
+                "response_type": "free_text",
+                "content": (
+                    "Enterprise value reflects the operating value of the business, while equity value "
+                    "is what belongs to shareholders after debt and cash are considered. EV-based "
+                    "multiples like EV / EBITDA are more useful when comparing companies with different "
+                    "capital structures or leverage, while equity value still matters for per-share "
+                    "metrics like P / E."
+                ),
+            },
+        }
+    )
+
+    score, feedback = score_reference_attempt(attempt)
+
+    assert score.mastery_band == MasteryBand.INTERVIEW_READY
+    assert score.overall_score >= 80
+    assert feedback.strengths
+
+
+def test_submit_reference_attempt_endpoint_returns_score_and_feedback() -> None:
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/reference/modules/valuation-enterprise-value/submit",
+        json={
+            "question_id": REFERENCE_QUESTION_ID,
+            "session_id": "session-123",
+            "response": {
+                "response_type": "free_text",
+                "content": (
+                    "Enterprise value is more useful than equity value because it captures the operating "
+                    "business and normalizes capital structure. I would use EV / EBITDA across companies "
+                    "with different debt levels, but equity value still matters for P / E."
+                ),
+            },
+        },
+    )
+
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["question_id"] == REFERENCE_QUESTION_ID
+    assert body["score"]["overall_score"] > 0
+    assert body["feedback"]["next_step"]
