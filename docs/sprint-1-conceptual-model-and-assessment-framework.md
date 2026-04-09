@@ -18,6 +18,24 @@ This sprint is not about building a big library of questions. It is about making
 - how feedback is stored
 - how a student progresses through material
 
+## Outcome
+
+Sprint 1 has effectively been completed as a backend foundation.
+
+Shipped against this spec:
+- Pydantic domain contracts
+- SQLAlchemy persistence models
+- local DB initialization
+- seeded valuation module and question catalog
+- rubric-backed scoring
+- persistence of attempts, scores, feedback, sessions, and progress
+
+Still deferred from the larger roadmap:
+- authored content management
+- auth and role enforcement
+- migrations
+- UI flows
+
 ## Why This Sprint Exists
 
 The original idea document already points at the right implementation shape:
@@ -318,6 +336,21 @@ Sprint 1 should output:
 - one worked example covering one topic and one assessment mode
 - a short list of invariants for implementation
 
+## Delivery Status
+
+- `entity diagram or schema draft`
+  Delivered as typed domain and SQLAlchemy models.
+- `rubric taxonomy`
+  Delivered in seeded rubric data and scoring contracts.
+- `question/answer contract`
+  Delivered.
+- `state transition map`
+  Partially delivered through persisted statuses and module progress.
+- `one worked example`
+  Delivered as the valuation reference flow.
+- `implementation invariants`
+  Reflected in tests and model constraints.
+
 ## Invariants
 
 1. A question must always belong to a concept.
@@ -369,6 +402,19 @@ Sprint 1 is done when:
 - the system can represent student attempts without blurring them into canonical content
 - one example finance question can be mapped cleanly through the whole model
 
+## Acceptance Check
+
+- Core data model
+  Met.
+- Rubric evaluates a concrete question type
+  Met for stored short-answer questions.
+- State model supports content and student progression
+  Met at the reference-flow level.
+- Student attempts are separate from canonical content
+  Met.
+- One example finance question maps cleanly through the full model
+  Exceeded. There are now two stored reference questions.
+
 ## Next Sprint Input
 
 Once this sprint is complete, the next step is implementation of the minimum backend schema and one API path for:
@@ -377,3 +423,10 @@ Once this sprint is complete, the next step is implementation of the minimum bac
 - returning structured feedback
 
 That is the first executable slice.
+
+## Current Next Step
+
+The project has already moved past the first executable slice. The next meaningful sprint is:
+- replace seeded-only content assumptions with authored question creation and retrieval
+- add migration management
+- define the first non-reference practice-session workflow
