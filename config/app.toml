@@ -1,0 +1,27 @@
+[app]
+name = "Prep Dojo"
+version = "0.1.0"
+description = "Foundational backend contracts for the SMU finance interview prep engine."
+environment = "development"
+
+[server]
+host = "127.0.0.1"
+port = 8000
+reload = true
+log_level = "info"
+
+[database]
+url = "sqlite:///./prep_dojo.db"
+
+[practice]
+reference_student_email = "reference-student@prep-dojo.local"
+
+[runtime]
+pid_file = ".run/prep-dojo.pid"
+log_file = ".run/prep-dojo.log"
+
+[deployment]
+host = "0.0.0.0"
+port_env_var = "PORT"
+healthcheck_path = "/healthz"
+proxy_headers = true

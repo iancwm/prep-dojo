@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.enums import AttemptStatus, ProgressStatus, UserRole
+from app.core.settings import get_settings
 from app.db.models import (
     AssessmentMode,
     CommonMistake,
@@ -33,7 +34,8 @@ from app.seeds.reference_data import (
 )
 from app.services.scoring import score_attempt_for_question
 
-REFERENCE_STUDENT_EMAIL = "reference-student@prep-dojo.local"
+settings = get_settings()
+REFERENCE_STUDENT_EMAIL = settings.practice.reference_student_email
 
 
 @dataclass

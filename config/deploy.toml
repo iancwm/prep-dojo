@@ -1,0 +1,17 @@
+[cloud]
+bind_host = "0.0.0.0"
+port_env_var = "PORT"
+healthcheck_path = "/healthz"
+startup_module = "app.main:app"
+proxy_headers = true
+workers = 1
+
+[artifacts]
+runtime_config = "config/app.toml"
+env_example = ".env.example"
+justfile = "justfile"
+
+[readiness]
+database_required = true
+schema_init_on_startup = true
+notes = "Prefer replacing create_all startup behavior with migrations before production rollout."

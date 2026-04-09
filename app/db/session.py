@@ -6,10 +6,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.settings import get_settings
 from app.db.base import Base
 
-
-DEFAULT_DATABASE_URL = "sqlite:///./prep_dojo.db"
+settings = get_settings()
 
 
 def create_db_engine(database_url: str) -> Engine:
@@ -20,8 +20,7 @@ def create_db_engine(database_url: str) -> Engine:
 def create_session_factory(bind: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=bind, autoflush=False, autocommit=False, expire_on_commit=False)
 
-
-DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL)
+DATABASE_URL = os.getenv("DATABASE_URL", settings.database.url)
 engine = create_db_engine(DATABASE_URL)
 SessionLocal = create_session_factory(engine)
 
@@ -36,4 +35,3 @@ def get_session():
         yield session
     finally:
         session.close()
-

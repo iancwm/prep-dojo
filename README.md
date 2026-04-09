@@ -22,6 +22,8 @@ What exists today:
 - authored status-transition workflow for `draft -> reviewed -> published`
 - authored question submission and scoring for rubric-backed free-text, oral-transcript, and multiple-choice answers
 - explicit attempt submission and scoring flow, with stored scores carrying rubric lineage and attempts ending in `complete`
+- centralized runtime configuration in `config/` with env overrides
+- `justfile` automation for local bootstrap, startup, testing, and teardown
 - local SQLite storage by default
 - tests covering schema validation, scoring, API behavior, and persistence
 
@@ -44,16 +46,22 @@ Install dependencies:
 uv sync --extra dev
 ```
 
+Bootstrap local automation:
+
+```bash
+just bootstrap
+```
+
 Run the app:
 
 ```bash
-./.venv/bin/uvicorn app.main:app --reload
+just up
 ```
 
 Run tests:
 
 ```bash
-./.venv/bin/pytest tests
+just test
 ```
 
 ## Runtime Behavior
@@ -65,8 +73,24 @@ Default database:
 
 Override with:
 - `DATABASE_URL`
+- `APP_CONFIG_PATH`
+- env vars from [.env.example](/Users/iancwm/git/prep-dojo/.env.example)
 
 The local database file is ignored in git.
+
+## Automation
+
+Main local commands:
+- `just bootstrap`
+- `just config`
+- `just up`
+- `just down`
+- `just restart`
+- `just status`
+- `just logs`
+- `just test`
+- `just teardown-local`
+- `just cloud-readiness`
 
 ## Implemented Endpoints
 
@@ -102,6 +126,10 @@ Practice sessions:
   FastAPI entrypoint and route definitions.
 - `app/core/enums.py`
   Shared domain enums.
+- `app/core/settings.py`
+  Runtime settings loader backed by `config/app.toml` and env overrides.
+- `app/cli.py`
+  Runtime CLI used by the `justfile`.
 - `app/schemas/domain.py`
   Pydantic contracts for the backend model.
 - `app/db/models.py`
@@ -116,6 +144,10 @@ Practice sessions:
   Catalog seeding and database persistence for attempts/results.
 - `app/services/practice_sessions.py`
   Practice session creation and session-history read models.
+- `config/`
+  Runtime and deployment-oriented configuration files.
+- `justfile`
+  Local automation for bootstrap, startup, test, and teardown.
 - `tests/`
   Contract, API, and persistence tests.
 - `docs/`
@@ -128,6 +160,7 @@ Practice sessions:
 - The scoring path now supports stored free-text, oral-transcript, and multiple-choice responses, but the oral path is still heuristic text scoring rather than true spoken-answer evaluation.
 - Authored questions must be published before they can be submitted.
 - The attempt lifecycle is explicit for synchronous scoring, but the reserved `created`, `scored`, and `needs_followup` states are not yet used by a manual-review or async-scoring flow.
+- Production deployment is still pre-migration and pre-auth; see [docs/cloud-deployment-readiness.md](/Users/iancwm/git/prep-dojo/docs/cloud-deployment-readiness.md).
 
 ## Next Likely Steps
 
@@ -135,3 +168,4 @@ Practice sessions:
 - add authored topic and concept management beyond question-bundle creation
 - add role-aware permissions around review and publishing actions
 - add richer session lifecycle controls such as completion, timing, and ordered question queues
+- add a production deployment entrypoint and platform manifest after migrations exist

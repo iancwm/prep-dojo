@@ -2,7 +2,7 @@
 
 ## Overview
 
-Prep Dojo is currently a small FastAPI service with a typed domain layer, a SQLAlchemy persistence layer, a seeded finance interview reference catalog, an authored question lifecycle, and first-class practice session APIs.
+Prep Dojo is currently a small FastAPI service with a typed domain layer, a SQLAlchemy persistence layer, a seeded finance interview reference catalog, an authored question lifecycle, first-class practice session APIs, and centralized runtime configuration.
 
 The core backend path implemented today is:
 
@@ -33,6 +33,25 @@ Responsibilities:
 - expose authored submit endpoints
 - expose reference submit endpoints
 - translate request payloads into typed domain models
+- consume runtime settings instead of embedding local-only startup values
+
+### Runtime Configuration
+
+Files:
+- [app/core/settings.py](/Users/iancwm/git/prep-dojo/app/core/settings.py)
+- [config/app.toml](/Users/iancwm/git/prep-dojo/config/app.toml)
+- [config/deploy.toml](/Users/iancwm/git/prep-dojo/config/deploy.toml)
+- [.env.example](/Users/iancwm/git/prep-dojo/.env.example)
+
+Responsibilities:
+- define default app, server, database, runtime, and deployment settings
+- allow environment overrides without rewriting code
+- separate local runtime defaults from future cloud-oriented deployment settings
+
+Precedence:
+1. environment variables
+2. `APP_CONFIG_PATH`
+3. `config/app.toml`
 
 ### Domain Contracts
 
@@ -72,6 +91,7 @@ Current database behavior:
 - SQLite by default for local execution
 - JSON columns use a SQLite-safe JSON type and switch to JSONB on PostgreSQL
 - schema is created via `Base.metadata.create_all()` at startup
+- database URL is now loaded from centralized settings rather than a hardcoded constant
 
 ### Seed Catalog
 
@@ -131,6 +151,17 @@ Responsibilities:
 - list recent practice sessions
 - return a session read model with attempt history and scores
 - preserve `client_session_id` as the external session identifier
+
+### Operations
+
+Files:
+- [app/cli.py](/Users/iancwm/git/prep-dojo/app/cli.py)
+- [justfile](/Users/iancwm/git/prep-dojo/justfile)
+
+Responsibilities:
+- run the configured app server without duplicating runtime constants in shell scripts
+- automate local bootstrap, startup, shutdown, testing, and local teardown
+- keep local operational commands aligned with the same settings surface used by the app
 
 ### Persistence Workflow
 
@@ -282,8 +313,9 @@ Current passing command:
 - no role-aware ownership enforcement around lifecycle actions
 - oral scoring is still transcript-as-text, not true speech or delivery evaluation
 - no dedicated history table for intermediate attempt lifecycle events
+- no production deployment manifest or CI/CD pipeline yet
 - no UI integration
 
 ## Recommended Next Step
 
-The next major shift should be adding role-aware permissions and UI workflows around the lifecycle actions that now exist, plus richer session orchestration such as timing, completion, and queued question sets.
+The next major shift should be adding Alembic plus a production deployment entrypoint so cloud rollout stops depending on startup-time `create_all()` behavior. After that, add role-aware permissions and UI workflows around the lifecycle actions that now exist.

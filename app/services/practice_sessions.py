@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.enums import AttemptStatus, MasteryBand, UserRole
+from app.core.settings import get_settings
 from app.db.models import PracticeSession, User
 from app.schemas.domain import (
     PracticeSessionAttemptSummary,
@@ -14,7 +15,8 @@ from app.schemas.domain import (
     PracticeSessionRecord,
     PracticeSessionSummary,
 )
-from app.services.persistence import REFERENCE_STUDENT_EMAIL
+
+settings = get_settings()
 
 
 def create_practice_session_record(session: Session, payload: PracticeSessionCreate) -> PracticeSessionRecord:
@@ -90,9 +92,9 @@ def _build_session_record(practice_session: PracticeSession) -> PracticeSessionR
 
 
 def _get_or_create_reference_student(session: Session) -> User:
-    user = session.scalar(select(User).where(User.email == REFERENCE_STUDENT_EMAIL))
+    user = session.scalar(select(User).where(User.email == settings.practice.reference_student_email))
     if user is None:
-        user = User(role=UserRole.STUDENT.value, email=REFERENCE_STUDENT_EMAIL)
+        user = User(role=UserRole.STUDENT.value, email=settings.practice.reference_student_email)
         session.add(user)
         session.flush()
     return user

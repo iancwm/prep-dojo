@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.settings import get_settings
 from app.db.session import get_session, init_db
 from app.schemas.domain import (
     AuthoredQuestionBundleCreate,
@@ -32,6 +33,8 @@ from app.services.practice_sessions import (
 )
 from app.services.persistence import ensure_reference_catalog, persist_authored_attempt, persist_reference_attempt
 
+settings = get_settings()
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -40,9 +43,9 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="Prep Dojo",
-    version="0.1.0",
-    description="Foundational backend contracts for the SMU finance interview prep engine.",
+    title=settings.app.name,
+    version=settings.app.version,
+    description=settings.app.description,
     lifespan=lifespan,
 )
 
