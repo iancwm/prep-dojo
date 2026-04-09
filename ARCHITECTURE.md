@@ -12,6 +12,11 @@ The core backend path implemented today is:
 4. the persistence service stores the attempt, score, feedback, and progress update
 5. the API returns the persisted attempt id plus structured results
 
+Current limitation in that flow:
+- the attempt row is persisted as `submitted`
+- scoring and feedback are stored immediately
+- attempt status progression to `scored`, `needs_followup`, or `complete` is not yet modeled as a separate state transition
+
 ## Application Layers
 
 ### API
@@ -137,6 +142,7 @@ Responsibilities:
 - create or reuse a reference student and practice session
 - persist attempts, scores, feedback, and progress
 - resolve stored questions by `external_id`
+- the persistence layer currently does not store an immutable rubric-version reference alongside the score
 
 ## Request Flow
 
@@ -176,6 +182,20 @@ Flow:
 - when moving to `reviewed`, review notes are required
 - question and rubric status are updated together
 - concept and topic statuses are promoted upward on review/publish so published content is distinguishable from draft parents
+
+### Attempt Lifecycle
+
+Current persisted states:
+- `submitted` for newly stored attempts
+
+Desired explicit states:
+- `created`
+- `submitted`
+- `scored`
+- `needs_followup`
+- `complete`
+
+The implementation still needs a dedicated state transition path so the stored attempt row or a companion history table records how an attempt moves after scoring.
 
 ### Practice Session Read
 
@@ -258,6 +278,8 @@ Current passing command:
 - no auth or user identity beyond a seeded reference student
 - no role-aware ownership enforcement around lifecycle actions
 - oral scoring is still transcript-as-text, not true speech or delivery evaluation
+- rubric-version lineage is not yet stored as an immutable field on scored attempts
+- attempt lifecycle transitions are still implicit rather than explicit in storage
 - no UI integration
 
 ## Recommended Next Step

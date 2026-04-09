@@ -36,7 +36,7 @@ Shipped against this spec:
 - persistence of attempts, scores, feedback, sessions, and progress
 
 Still deferred from the larger roadmap:
-- authored content management
+- authored content management beyond the current bundle/create/retrieve/status flow
 - auth and role enforcement
 - migrations
 - UI flows
@@ -298,6 +298,21 @@ Example mastery bands:
 - `needs_followup`
 - `complete`
 
+### Attempt State Machine
+
+The student-attempt state machine should be treated as an explicit contract, not an inferred side effect of persistence.
+
+Current implementation:
+- attempts are created when the student submits work
+- scored results are stored alongside the attempt
+- the persisted attempt status currently remains `submitted`
+- the system does not yet promote attempt rows through `scored`, `needs_followup`, or `complete`
+
+Remaining Sprint 1 work:
+- persist the scored state on the attempt or a linked status history record
+- define when an attempt becomes `scored` versus `needs_followup`
+- define the final `complete` transition once feedback has been consumed or a retry is issued
+
 ### Progress Lifecycle
 - `not_started`
 - `in_progress`
@@ -366,6 +381,20 @@ Sprint 1 should output:
 6. Published content must be distinguishable from draft content.
 7. JSONB payloads must still be validated by an explicit schema.
 
+### Rubric Version Invariant
+
+The rubric-version invariant is still the main Sprint 1 gap that needs to be made explicit in storage.
+
+Current implementation:
+- scores are computed against the rubric attached to the question at submission time
+- the stored score row keeps the breakdown and mastery band
+- the system does not yet persist a rubric version identifier or immutable snapshot pointer on the score record
+
+Remaining Sprint 1 work:
+- store the rubric version used for each scored attempt
+- make the score record referentially stable even if the rubric is revised later
+- document the invalidation rule for rescoring after rubric edits
+
 ## Worked Example
 
 Topic: Valuation
@@ -419,6 +448,13 @@ Sprint 1 is done when:
   Met.
 - One example finance question maps cleanly through the full model
   Exceeded. There are now two stored reference questions.
+
+## Remaining Sprint 1 Items
+
+These are the last items still worth treating as Sprint 1 work:
+- persist rubric version lineage on scored attempts
+- make attempt status progression explicit in storage or a history table
+- tie the attempt lifecycle to the feedback consumption path
 
 ## Next Sprint Input
 
