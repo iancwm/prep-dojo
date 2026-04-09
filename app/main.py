@@ -1,12 +1,19 @@
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import get_session, init_db
 from app.schemas.domain import StudentAttemptCreate, build_reference_assessment_modes
-from app.seeds.reference_data import get_reference_module, get_reference_progress_snapshot
-from app.services.persistence import persist_reference_attempt
+from app.seeds.reference_data import (
+    PRIMARY_REFERENCE_QUESTION_ID,
+    SECONDARY_REFERENCE_QUESTION_ID,
+    build_reference_question_catalog,
+    get_reference_follow_up_question_bundle,
+    get_reference_module,
+    get_reference_progress_snapshot,
+)
+from app.services.persistence import ensure_reference_catalog, persist_reference_attempt
 
 
 @asynccontextmanager
@@ -43,8 +50,42 @@ def get_valuation_reference_progress() -> dict[str, str]:
     return get_reference_progress_snapshot()
 
 
+@app.get("/api/v1/reference/questions")
+def list_reference_questions() -> list[dict]:
+    return [item.model_dump(mode="json") for item in build_reference_question_catalog()]
+
+
+@app.get("/api/v1/reference/questions/{question_external_id}")
+def get_reference_question(question_external_id: str, session: Session = Depends(get_session)) -> dict:
+    ensure_reference_catalog(session)
+    if question_external_id == PRIMARY_REFERENCE_QUESTION_ID:
+        return get_reference_module().question_bundle.model_dump(mode="json")
+    if question_external_id == SECONDARY_REFERENCE_QUESTION_ID:
+        return get_reference_follow_up_question_bundle().model_dump(mode="json")
+    raise HTTPException(status_code=404, detail="Unknown reference question.")
+
+
 @app.post("/api/v1/reference/modules/valuation-enterprise-value/submit")
 def submit_valuation_reference_attempt(attempt: StudentAttemptCreate, session: Session = Depends(get_session)) -> dict:
+    result = persist_reference_attempt(session, attempt)
+    return {
+        "attempt_id": result.attempt_id,
+        "question_id": result.question_id,
+        "session_id": result.session_id,
+        "score": result.score.model_dump(mode="json"),
+        "feedback": result.feedback.model_dump(mode="json"),
+    }
+
+
+@app.post("/api/v1/reference/questions/{question_external_id}/submit")
+def submit_reference_question_attempt(
+    question_external_id: str,
+    attempt: StudentAttemptCreate,
+    session: Session = Depends(get_session),
+) -> dict:
+    if attempt.question_id != question_external_id:
+        raise HTTPException(status_code=400, detail="Path question id does not match payload question id.")
+
     result = persist_reference_attempt(session, attempt)
     return {
         "attempt_id": result.attempt_id,

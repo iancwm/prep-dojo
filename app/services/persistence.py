@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -22,8 +23,14 @@ from app.db.models import (
     User,
 )
 from app.schemas.domain import FeedbackResult, ScoreResult, StudentAttemptCreate
-from app.seeds.reference_data import get_reference_module
-from app.services.scoring import REFERENCE_QUESTION_ID, score_reference_attempt
+from app.seeds.reference_data import (
+    PRIMARY_REFERENCE_QUESTION_ID,
+    SECONDARY_REFERENCE_QUESTION_ID,
+    build_reference_question_catalog,
+    get_reference_follow_up_question_bundle,
+    get_reference_module,
+)
+from app.services.scoring import score_attempt_for_question
 
 REFERENCE_STUDENT_EMAIL = "reference-student@prep-dojo.local"
 
@@ -37,15 +44,35 @@ class PersistedAttemptResult:
     feedback: FeedbackResult
 
 
+@dataclass
+class ReferenceCatalog:
+    topic: Topic
+    concepts_by_id: dict
+    questions_by_external_id: dict
+    rubrics_by_question_id: dict
+    expected_answers_by_question_id: dict
+    common_mistakes_by_question_id: dict
+
+
 def persist_reference_attempt(session: Session, attempt: StudentAttemptCreate) -> PersistedAttemptResult:
-    score, feedback = score_reference_attempt(attempt)
     catalog = ensure_reference_catalog(session)
+    question_row = catalog.questions_by_external_id.get(attempt.question_id)
+    if question_row is None:
+        raise HTTPException(status_code=404, detail="Unknown reference question.")
+
+    score, feedback = score_attempt_for_question(
+        attempt=attempt,
+        question=question_row,
+        rubric=catalog.rubrics_by_question_id[question_row.id],
+        expected_answer=catalog.expected_answers_by_question_id[question_row.id],
+        common_mistakes=catalog.common_mistakes_by_question_id.get(question_row.id, []),
+    )
     user = _get_or_create_reference_student(session)
     practice_session = _get_or_create_practice_session(session, user.id, attempt.session_id)
 
     attempt_row = StudentAttempt(
         student_id=user.id,
-        question_id=catalog.question.id,
+        question_id=question_row.id,
         session_id=practice_session.id,
         response_json=attempt.response.model_dump(mode="json"),
         status=attempt.status.value,
@@ -53,27 +80,29 @@ def persist_reference_attempt(session: Session, attempt: StudentAttemptCreate) -
     session.add(attempt_row)
     session.flush()
 
-    score_row = Score(
-        attempt_id=attempt_row.id,
-        overall_score=score.overall_score,
-        mastery_band=score.mastery_band.value,
-        scoring_method=score.scoring_method.value,
-        rubric_breakdown_json=[item.model_dump(mode="json") for item in score.criterion_scores],
+    session.add(
+        Score(
+            attempt_id=attempt_row.id,
+            overall_score=score.overall_score,
+            mastery_band=score.mastery_band.value,
+            scoring_method=score.scoring_method.value,
+            rubric_breakdown_json=[item.model_dump(mode="json") for item in score.criterion_scores],
+        )
     )
-    feedback_row = Feedback(
-        attempt_id=attempt_row.id,
-        strengths_json=feedback.strengths,
-        gaps_json=feedback.gaps,
-        next_step=feedback.next_step,
-        feedback_json=feedback.model_dump(mode="json"),
+    session.add(
+        Feedback(
+            attempt_id=attempt_row.id,
+            strengths_json=feedback.strengths,
+            gaps_json=feedback.gaps,
+            next_step=feedback.next_step,
+            feedback_json=feedback.model_dump(mode="json"),
+        )
     )
-    session.add(score_row)
-    session.add(feedback_row)
     _upsert_module_progress(
         session=session,
         user_id=user.id,
         topic_id=catalog.topic.id,
-        concept_slug=catalog.concept.slug,
+        concept_slug=catalog.concepts_by_id[question_row.concept_id].slug,
         mastery_band=score.mastery_band.value,
     )
     session.commit()
@@ -88,16 +117,13 @@ def persist_reference_attempt(session: Session, attempt: StudentAttemptCreate) -
     )
 
 
-@dataclass
-class ReferenceCatalog:
-    topic: Topic
-    concept: Concept
-    assessment_mode: AssessmentMode
-    question: Question
-
-
 def ensure_reference_catalog(session: Session) -> ReferenceCatalog:
     module = get_reference_module()
+    follow_up_bundle = get_reference_follow_up_question_bundle()
+    question_seeds = {
+        PRIMARY_REFERENCE_QUESTION_ID: module.question_bundle,
+        SECONDARY_REFERENCE_QUESTION_ID: follow_up_bundle,
+    }
 
     topic = session.scalar(select(Topic).where(Topic.slug == module.topic.slug))
     if topic is None:
@@ -125,9 +151,7 @@ def ensure_reference_catalog(session: Session) -> ReferenceCatalog:
         session.add(concept)
         session.flush()
 
-    assessment_mode = session.scalar(
-        select(AssessmentMode).where(AssessmentMode.name == module.assessment_mode.mode.value)
-    )
+    assessment_mode = session.scalar(select(AssessmentMode).where(AssessmentMode.name == module.assessment_mode.mode.value))
     if assessment_mode is None:
         assessment_mode = AssessmentMode(
             name=module.assessment_mode.mode.value,
@@ -138,64 +162,79 @@ def ensure_reference_catalog(session: Session) -> ReferenceCatalog:
         session.add(assessment_mode)
         session.flush()
 
-    question = session.scalar(select(Question).where(Question.external_id == REFERENCE_QUESTION_ID))
-    if question is None:
-        question = Question(
-            concept_id=concept.id,
-            assessment_mode_id=assessment_mode.id,
-            external_id=REFERENCE_QUESTION_ID,
-            prompt=module.question_bundle.question.prompt,
-            context=module.question_bundle.question.context,
-            difficulty=module.question_bundle.question.difficulty.value,
-            status=module.question_bundle.question.status.value,
-            author_type=module.question_bundle.question.author_type.value,
-            payload_json=module.question_bundle.question.payload.model_dump(mode="json"),
-        )
-        session.add(question)
-        session.flush()
+    questions_by_external_id = {}
+    rubrics_by_question_id = {}
+    expected_answers_by_question_id = {}
+    common_mistakes_by_question_id = {}
 
-    rubric = session.scalar(select(Rubric).where(Rubric.question_id == question.id))
-    if rubric is None:
-        rubric = Rubric(
-            question_id=question.id,
-            criteria_json=[criterion.model_dump(mode="json") for criterion in module.question_bundle.rubric.criteria],
-            thresholds_json=[
-                threshold.model_dump(mode="json") for threshold in module.question_bundle.rubric.thresholds
-            ],
-            scoring_style=module.question_bundle.rubric.scoring_style.value,
-            status=module.question_bundle.question.status.value,
-        )
-        session.add(rubric)
-
-    expected_answer = session.scalar(select(ExpectedAnswer).where(ExpectedAnswer.question_id == question.id))
-    if expected_answer is None:
-        expected_answer = ExpectedAnswer(
-            question_id=question.id,
-            answer_text=module.question_bundle.expected_answer.answer_text,
-            answer_outline_json=module.question_bundle.expected_answer.answer_outline,
-            key_points_json=module.question_bundle.expected_answer.key_points,
-            acceptable_variants_json=module.question_bundle.expected_answer.acceptable_variants,
-        )
-        session.add(expected_answer)
-
-    existing_mistakes = session.scalars(select(CommonMistake).where(CommonMistake.question_id == question.id)).all()
-    if not existing_mistakes:
-        for mistake in module.question_bundle.common_mistakes:
-            session.add(
-                CommonMistake(
-                    question_id=question.id,
-                    mistake_text=mistake.mistake_text,
-                    why_it_is_wrong=mistake.why_it_is_wrong,
-                    remediation_hint=mistake.remediation_hint,
-                )
+    for question_reference in build_reference_question_catalog():
+        bundle = question_seeds[question_reference.external_id]
+        question = session.scalar(select(Question).where(Question.external_id == question_reference.external_id))
+        if question is None:
+            question = Question(
+                concept_id=concept.id,
+                assessment_mode_id=assessment_mode.id,
+                external_id=question_reference.external_id,
+                prompt=question_reference.question.prompt,
+                context=question_reference.question.context,
+                difficulty=question_reference.question.difficulty.value,
+                status=question_reference.question.status.value,
+                author_type=question_reference.question.author_type.value,
+                payload_json=question_reference.question.payload.model_dump(mode="json"),
             )
+            session.add(question)
+            session.flush()
 
-    session.flush()
+        rubric = session.scalar(select(Rubric).where(Rubric.question_id == question.id))
+        if rubric is None:
+            rubric = Rubric(
+                question_id=question.id,
+                criteria_json=[criterion.model_dump(mode="json") for criterion in bundle.rubric.criteria],
+                thresholds_json=[threshold.model_dump(mode="json") for threshold in bundle.rubric.thresholds],
+                scoring_style=bundle.rubric.scoring_style.value,
+                status=question_reference.question.status.value,
+            )
+            session.add(rubric)
+            session.flush()
+
+        expected_answer = session.scalar(select(ExpectedAnswer).where(ExpectedAnswer.question_id == question.id))
+        if expected_answer is None:
+            expected_answer = ExpectedAnswer(
+                question_id=question.id,
+                answer_text=bundle.expected_answer.answer_text,
+                answer_outline_json=bundle.expected_answer.answer_outline,
+                key_points_json=bundle.expected_answer.key_points,
+                acceptable_variants_json=bundle.expected_answer.acceptable_variants,
+            )
+            session.add(expected_answer)
+            session.flush()
+
+        mistakes = session.scalars(select(CommonMistake).where(CommonMistake.question_id == question.id)).all()
+        if not mistakes:
+            for mistake in bundle.common_mistakes:
+                session.add(
+                    CommonMistake(
+                        question_id=question.id,
+                        mistake_text=mistake.mistake_text,
+                        why_it_is_wrong=mistake.why_it_is_wrong,
+                        remediation_hint=mistake.remediation_hint,
+                    )
+                )
+            session.flush()
+            mistakes = session.scalars(select(CommonMistake).where(CommonMistake.question_id == question.id)).all()
+
+        questions_by_external_id[question_reference.external_id] = question
+        rubrics_by_question_id[question.id] = rubric
+        expected_answers_by_question_id[question.id] = expected_answer
+        common_mistakes_by_question_id[question.id] = mistakes
+
     return ReferenceCatalog(
         topic=topic,
-        concept=concept,
-        assessment_mode=assessment_mode,
-        question=question,
+        concepts_by_id={concept.id: concept},
+        questions_by_external_id=questions_by_external_id,
+        rubrics_by_question_id=rubrics_by_question_id,
+        expected_answers_by_question_id=expected_answers_by_question_id,
+        common_mistakes_by_question_id=common_mistakes_by_question_id,
     )
 
 
@@ -239,13 +278,14 @@ def _upsert_module_progress(
     concept_mastery = {concept_slug: mastery_band}
     progress_status = _progress_status_from_mastery(mastery_band)
     if progress is None:
-        progress = ModuleProgress(
-            student_id=user_id,
-            topic_id=topic_id,
-            progress_status=progress_status.value,
-            concept_mastery_json=concept_mastery,
+        session.add(
+            ModuleProgress(
+                student_id=user_id,
+                topic_id=topic_id,
+                progress_status=progress_status.value,
+                concept_mastery_json=concept_mastery,
+            )
         )
-        session.add(progress)
         return
 
     progress.concept_mastery_json = {**progress.concept_mastery_json, **concept_mastery}

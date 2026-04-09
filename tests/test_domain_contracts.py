@@ -2,7 +2,14 @@ from fastapi.testclient import TestClient
 
 from app.core.enums import AssessmentModeType, MasteryBand, ScoringMethod
 from app.main import app
-from app.seeds.reference_data import get_reference_module, get_reference_progress_snapshot
+from app.seeds.reference_data import (
+    PRIMARY_REFERENCE_QUESTION_ID,
+    SECONDARY_REFERENCE_QUESTION_ID,
+    build_reference_question_catalog,
+    get_reference_follow_up_question_bundle,
+    get_reference_module,
+    get_reference_progress_snapshot,
+)
 from app.services.scoring import REFERENCE_QUESTION_ID, score_reference_attempt
 from app.schemas.domain import (
     FeedbackResult,
@@ -120,6 +127,15 @@ def test_reference_progress_snapshot_matches_seeded_module() -> None:
     assert snapshot["concept_slug"] == "enterprise-value-vs-equity-value"
 
 
+def test_reference_question_catalog_lists_multiple_stored_questions() -> None:
+    catalog = build_reference_question_catalog()
+
+    assert [item.external_id for item in catalog] == [
+        PRIMARY_REFERENCE_QUESTION_ID,
+        SECONDARY_REFERENCE_QUESTION_ID,
+    ]
+
+
 def test_scoring_service_returns_interview_ready_for_strong_answer() -> None:
     attempt = StudentAttemptCreate.model_validate(
         {
@@ -143,6 +159,14 @@ def test_scoring_service_returns_interview_ready_for_strong_answer() -> None:
     assert score.mastery_band == MasteryBand.INTERVIEW_READY
     assert score.overall_score >= 80
     assert feedback.strengths
+
+
+def test_scoring_service_supports_second_stored_question() -> None:
+    bundle = get_reference_follow_up_question_bundle()
+    score, feedback = score_reference_attempt(bundle.sample_attempt)
+
+    assert score.mastery_band == MasteryBand.INTERVIEW_READY
+    assert feedback.next_step
 
 
 def test_submit_reference_attempt_endpoint_returns_score_and_feedback() -> None:
@@ -169,3 +193,28 @@ def test_submit_reference_attempt_endpoint_returns_score_and_feedback() -> None:
     assert body["question_id"] == REFERENCE_QUESTION_ID
     assert body["score"]["overall_score"] > 0
     assert body["feedback"]["next_step"]
+
+
+def test_submit_generic_reference_question_endpoint_returns_score_and_feedback() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            f"/api/v1/reference/questions/{SECONDARY_REFERENCE_QUESTION_ID}/submit",
+            json={
+                "question_id": SECONDARY_REFERENCE_QUESTION_ID,
+                "session_id": "session-456",
+                "response": {
+                    "response_type": "free_text",
+                    "content": (
+                        "Equity value is more useful when the interviewer wants the shareholder lens or a "
+                        "per-share metric like P / E, while enterprise value remains better for operating "
+                        "comparisons across different capital structures."
+                    ),
+                },
+            },
+        )
+
+    body = response.json()
+
+    assert response.status_code == 200
+    assert body["question_id"] == SECONDARY_REFERENCE_QUESTION_ID
+    assert body["score"]["overall_score"] > 0

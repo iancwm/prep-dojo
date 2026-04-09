@@ -242,6 +242,13 @@ class ReferenceModule(BaseModel):
     question_bundle: ReferenceQuestionBundle
 
 
+class StoredQuestionReference(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    external_id: str
+    question: QuestionCreate
+
+
 def build_reference_assessment_modes() -> list[AssessmentModeDefinition]:
     return [
         AssessmentModeDefinition(
