@@ -3,11 +3,13 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, Uuid, func
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, Uuid, event, func, select
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.db.session import engine as default_engine
 
 JSON_TYPE = JSON().with_variant(JSONB, "postgresql")
 
@@ -111,6 +113,7 @@ class Rubric(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     question_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("questions.id"), nullable=False, unique=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     criteria_json: Mapped[list[dict]] = mapped_column(JSON_TYPE, nullable=False)
     thresholds_json: Mapped[list[dict]] = mapped_column(JSON_TYPE, nullable=False)
     scoring_style: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -190,6 +193,8 @@ class Score(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     attempt_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("student_attempts.id"), nullable=False, unique=True)
+    rubric_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("rubrics.id"), nullable=False)
+    rubric_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     overall_score: Mapped[float] = mapped_column(Float, nullable=False)
     mastery_band: Mapped[str] = mapped_column(String(30), nullable=False)
     scoring_method: Mapped[str] = mapped_column(String(20), nullable=False)
@@ -199,6 +204,7 @@ class Score(Base):
     )
 
     attempt: Mapped["StudentAttempt"] = relationship(back_populates="score")
+    rubric: Mapped["Rubric"] = relationship()
 
 
 class Feedback(Base):
@@ -226,3 +232,44 @@ class ModuleProgress(Base):
     progress_status: Mapped[str] = mapped_column(String(20), nullable=False, default="not_started")
     concept_mastery_json: Mapped[dict[str, str]] = mapped_column(JSON_TYPE, nullable=False, default=dict)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+@event.listens_for(Score, "before_insert")
+def _populate_score_rubric_lineage(mapper: object, connection, target: Score) -> None:
+    if target.rubric_id is not None:
+        return
+
+    rubric_row = connection.execute(
+        select(Rubric.id, Rubric.version)
+        .join(Question, Question.id == Rubric.question_id)
+        .join(StudentAttempt, StudentAttempt.question_id == Question.id)
+        .where(StudentAttempt.id == target.attempt_id)
+    ).first()
+    if rubric_row is None:
+        raise ValueError("Unable to resolve rubric lineage for scored attempt.")
+
+    target.rubric_id = rubric_row.id
+    target.rubric_version = rubric_row.version
+
+
+def _ensure_sqlite_lineage_columns() -> None:
+    if default_engine.dialect.name != "sqlite":
+        return
+
+    inspector = inspect(default_engine)
+    if "rubrics" in inspector.get_table_names():
+        rubric_columns = {column["name"] for column in inspector.get_columns("rubrics")}
+        if "version" not in rubric_columns:
+            with default_engine.begin() as connection:
+                connection.execute(text("ALTER TABLE rubrics ADD COLUMN version INTEGER NOT NULL DEFAULT 1"))
+
+    if "scores" in inspector.get_table_names():
+        score_columns = {column["name"] for column in inspector.get_columns("scores")}
+        with default_engine.begin() as connection:
+            if "rubric_id" not in score_columns:
+                connection.execute(text("ALTER TABLE scores ADD COLUMN rubric_id CHAR(32)"))
+            if "rubric_version" not in score_columns:
+                connection.execute(text("ALTER TABLE scores ADD COLUMN rubric_version INTEGER NOT NULL DEFAULT 1"))
+
+
+_ensure_sqlite_lineage_columns()

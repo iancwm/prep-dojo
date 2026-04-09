@@ -71,6 +71,7 @@ def test_submit_reference_attempt_persists_attempt_score_and_feedback(tmp_path: 
         stored_attempt = session.scalar(select(StudentAttempt))
         stored_score = session.scalar(select(Score))
         stored_feedback = session.scalar(select(Feedback))
+        stored_rubric = session.scalar(select(Rubric).where(Rubric.question_id == stored_question.id))
         stored_practice_session = session.scalar(select(PracticeSession))
         stored_progress = session.scalar(select(ModuleProgress))
 
@@ -80,6 +81,9 @@ def test_submit_reference_attempt_persists_attempt_score_and_feedback(tmp_path: 
         assert stored_attempt.response_json["response_type"] == "free_text"
         assert stored_score is not None
         assert stored_score.attempt_id == stored_attempt.id
+        assert stored_rubric is not None
+        assert stored_score.rubric_id == stored_rubric.id
+        assert stored_score.rubric_version == stored_rubric.version
         assert stored_feedback is not None
         assert stored_feedback.attempt_id == stored_attempt.id
         assert stored_practice_session is not None
@@ -235,6 +239,7 @@ def test_create_authored_question_persists_bundle_artifacts(tmp_path: Path) -> N
         assert stored_rubric is not None
         assert stored_rubric.question_id == stored_question.id
         assert stored_rubric.status == "draft"
+        assert stored_rubric.version == 1
         assert stored_expected_answer is not None
         assert stored_expected_answer.question_id == stored_question.id
 
@@ -331,6 +336,7 @@ def test_authored_question_status_transition_persists_review_and_publish_state(t
         assert stored_rubric is not None
         assert stored_rubric.status == "published"
         assert stored_rubric.review_notes == "Reviewed and ready for release."
+        assert stored_rubric.version == 1
         assert stored_concept is not None
         assert stored_concept.status == "published"
         assert stored_topic is not None
@@ -450,6 +456,7 @@ def test_submit_authored_question_persists_attempt_score_and_progress(tmp_path: 
         stored_attempt = session.scalar(select(StudentAttempt).where(StudentAttempt.question_id == stored_question.id))
         stored_score = session.scalar(select(Score).where(Score.attempt_id == stored_attempt.id))
         stored_feedback = session.scalar(select(Feedback).where(Feedback.attempt_id == stored_attempt.id))
+        stored_rubric = session.scalar(select(Rubric).where(Rubric.question_id == stored_question.id))
         stored_practice_session = session.scalar(
             select(PracticeSession).where(PracticeSession.client_session_id == "authored-persisted-session-1")
         )
@@ -461,6 +468,9 @@ def test_submit_authored_question_persists_attempt_score_and_progress(tmp_path: 
         assert stored_attempt.response_json["response_type"] == "free_text"
         assert stored_score is not None
         assert stored_score.overall_score > 0
+        assert stored_rubric is not None
+        assert stored_score.rubric_id == stored_rubric.id
+        assert stored_score.rubric_version == stored_rubric.version
         assert stored_feedback is not None
         assert stored_practice_session is not None
         assert stored_practice_session.config_json["source"] == "authored-question"
