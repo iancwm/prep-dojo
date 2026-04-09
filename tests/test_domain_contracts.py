@@ -146,23 +146,22 @@ def test_scoring_service_returns_interview_ready_for_strong_answer() -> None:
 
 
 def test_submit_reference_attempt_endpoint_returns_score_and_feedback() -> None:
-    client = TestClient(app)
-
-    response = client.post(
-        "/api/v1/reference/modules/valuation-enterprise-value/submit",
-        json={
-            "question_id": REFERENCE_QUESTION_ID,
-            "session_id": "session-123",
-            "response": {
-                "response_type": "free_text",
-                "content": (
-                    "Enterprise value is more useful than equity value because it captures the operating "
-                    "business and normalizes capital structure. I would use EV / EBITDA across companies "
-                    "with different debt levels, but equity value still matters for P / E."
-                ),
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/reference/modules/valuation-enterprise-value/submit",
+            json={
+                "question_id": REFERENCE_QUESTION_ID,
+                "session_id": "session-123",
+                "response": {
+                    "response_type": "free_text",
+                    "content": (
+                        "Enterprise value is more useful than equity value because it captures the operating "
+                        "business and normalizes capital structure. I would use EV / EBITDA across companies "
+                        "with different debt levels, but equity value still matters for P / E."
+                    ),
+                },
             },
-        },
-    )
+        )
 
     body = response.json()
 

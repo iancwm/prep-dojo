@@ -1,13 +1,25 @@
-from fastapi import FastAPI
+from contextlib import asynccontextmanager
 
+from fastapi import Depends, FastAPI
+from sqlalchemy.orm import Session
+
+from app.db.session import get_session, init_db
 from app.schemas.domain import StudentAttemptCreate, build_reference_assessment_modes
 from app.seeds.reference_data import get_reference_module, get_reference_progress_snapshot
-from app.services.scoring import score_reference_attempt
+from app.services.persistence import persist_reference_attempt
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    init_db()
+    yield
+
 
 app = FastAPI(
     title="Prep Dojo",
     version="0.1.0",
     description="Foundational backend contracts for the SMU finance interview prep engine.",
+    lifespan=lifespan,
 )
 
 
@@ -32,11 +44,12 @@ def get_valuation_reference_progress() -> dict[str, str]:
 
 
 @app.post("/api/v1/reference/modules/valuation-enterprise-value/submit")
-def submit_valuation_reference_attempt(attempt: StudentAttemptCreate) -> dict:
-    score, feedback = score_reference_attempt(attempt)
+def submit_valuation_reference_attempt(attempt: StudentAttemptCreate, session: Session = Depends(get_session)) -> dict:
+    result = persist_reference_attempt(session, attempt)
     return {
-        "question_id": attempt.question_id,
-        "session_id": attempt.session_id,
-        "score": score.model_dump(mode="json"),
-        "feedback": feedback.model_dump(mode="json"),
+        "attempt_id": result.attempt_id,
+        "question_id": result.question_id,
+        "session_id": result.session_id,
+        "score": result.score.model_dump(mode="json"),
+        "feedback": result.feedback.model_dump(mode="json"),
     }
