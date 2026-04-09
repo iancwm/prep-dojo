@@ -250,6 +250,27 @@ def test_submit_reference_attempt_endpoint_returns_score_and_feedback() -> None:
     assert body["feedback"]["next_step"]
 
 
+def test_submit_reference_attempt_endpoint_rejects_non_submitted_status() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/reference/modules/valuation-enterprise-value/submit",
+            json={
+                "question_id": REFERENCE_QUESTION_ID,
+                "session_id": "session-bad-status",
+                "status": "created",
+                "response": {
+                    "response_type": "free_text",
+                    "content": "Enterprise value is useful for comparing businesses with different leverage.",
+                },
+            },
+        )
+
+    body = response.json()
+
+    assert response.status_code == 400
+    assert "submitted" in body["detail"]
+
+
 def test_submit_generic_reference_question_endpoint_returns_score_and_feedback() -> None:
     with TestClient(app) as client:
         response = client.post(

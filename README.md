@@ -21,7 +21,7 @@ What exists today:
 - authored question bundle creation and retrieval routes backed by the database
 - authored status-transition workflow for `draft -> reviewed -> published`
 - authored question submission and scoring for rubric-backed free-text, oral-transcript, and multiple-choice answers
-- explicit attempt submission and scoring flow, with attempt rows remaining `submitted` today
+- explicit attempt submission and scoring flow, with stored scores carrying rubric lineage and attempts ending in `complete`
 - local SQLite storage by default
 - tests covering schema validation, scoring, API behavior, and persistence
 
@@ -127,8 +127,7 @@ Practice sessions:
 - Authored content can now be stored and moved through a review/publish workflow, but there is still no auth or admin UI around it.
 - The scoring path now supports stored free-text, oral-transcript, and multiple-choice responses, but the oral path is still heuristic text scoring rather than true spoken-answer evaluation.
 - Authored questions must be published before they can be submitted.
-- The attempt lifecycle is still not promoted through `scored -> needs_followup -> complete` in storage.
-- Scores are computed against the current rubric, but rubric-version lineage is still not stored as an immutable reference.
+- The attempt lifecycle is explicit for synchronous scoring, but the reserved `created`, `scored`, and `needs_followup` states are not yet used by a manual-review or async-scoring flow.
 
 ## Next Likely Steps
 
@@ -136,5 +135,3 @@ Practice sessions:
 - add authored topic and concept management beyond question-bundle creation
 - add role-aware permissions around review and publishing actions
 - add richer session lifecycle controls such as completion, timing, and ordered question queues
-- persist rubric-version lineage on scored attempts
-- make attempt lifecycle transitions explicit in storage

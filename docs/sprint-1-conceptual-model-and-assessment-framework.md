@@ -305,13 +305,8 @@ The student-attempt state machine should be treated as an explicit contract, not
 Current implementation:
 - attempts are created when the student submits work
 - scored results are stored alongside the attempt
-- the persisted attempt status currently remains `submitted`
-- the system does not yet promote attempt rows through `scored`, `needs_followup`, or `complete`
-
-Remaining Sprint 1 work:
-- persist the scored state on the attempt or a linked status history record
-- define when an attempt becomes `scored` versus `needs_followup`
-- define the final `complete` transition once feedback has been consumed or a retry is issued
+- the attempt row is persisted as `submitted` first, then finalized as `complete` in the same synchronous path
+- the reserved `created`, `scored`, and `needs_followup` states are not yet used because there is no async or mentor-reviewed scoring path
 
 ### Progress Lifecycle
 - `not_started`
@@ -365,7 +360,7 @@ Sprint 1 should output:
 - `question/answer contract`
   Delivered.
 - `state transition map`
-  Partially delivered through persisted statuses and module progress.
+  Delivered through content lifecycle transitions, synchronous attempt completion, and module progress.
 - `one worked example`
   Delivered as the valuation reference flow.
 - `implementation invariants`
@@ -383,17 +378,10 @@ Sprint 1 should output:
 
 ### Rubric Version Invariant
 
-The rubric-version invariant is still the main Sprint 1 gap that needs to be made explicit in storage.
-
 Current implementation:
 - scores are computed against the rubric attached to the question at submission time
 - the stored score row keeps the breakdown and mastery band
-- the system does not yet persist a rubric version identifier or immutable snapshot pointer on the score record
-
-Remaining Sprint 1 work:
-- store the rubric version used for each scored attempt
-- make the score record referentially stable even if the rubric is revised later
-- document the invalidation rule for rescoring after rubric edits
+- the stored score row now keeps `rubric_id` and `rubric_version` so the scoring lineage is referentially stable
 
 ## Worked Example
 
@@ -443,18 +431,11 @@ Sprint 1 is done when:
 - Rubric evaluates a concrete question type
   Met for stored short-answer questions.
 - State model supports content and student progression
-  Met at the reference-flow level.
+  Met.
 - Student attempts are separate from canonical content
   Met.
 - One example finance question maps cleanly through the full model
   Exceeded. There are now two stored reference questions.
-
-## Remaining Sprint 1 Items
-
-These are the last items still worth treating as Sprint 1 work:
-- persist rubric version lineage on scored attempts
-- make attempt status progression explicit in storage or a history table
-- tie the attempt lifecycle to the feedback consumption path
 
 ## Next Sprint Input
 

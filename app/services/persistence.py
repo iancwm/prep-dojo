@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.enums import ProgressStatus, UserRole
+from app.core.enums import AttemptStatus, ProgressStatus, UserRole
 from app.db.models import (
     AssessmentMode,
     CommonMistake,
@@ -123,6 +123,7 @@ def _persist_attempt_for_question(
     concept_slug: str,
     session_source: str,
 ) -> PersistedAttemptResult:
+    _validate_submit_attempt(attempt)
     score, feedback = score_attempt_for_question(
         attempt=attempt,
         question=question_row,
@@ -138,7 +139,7 @@ def _persist_attempt_for_question(
         question_id=question_row.id,
         session_id=practice_session.id,
         response_json=attempt.response.model_dump(mode="json"),
-        status=attempt.status.value,
+        status=AttemptStatus.SUBMITTED.value,
     )
     session.add(attempt_row)
     session.flush()
@@ -146,6 +147,8 @@ def _persist_attempt_for_question(
     session.add(
         Score(
             attempt_id=attempt_row.id,
+            rubric_id=rubric.id,
+            rubric_version=rubric.version,
             overall_score=score.overall_score,
             mastery_band=score.mastery_band.value,
             scoring_method=score.scoring_method.value,
@@ -168,6 +171,7 @@ def _persist_attempt_for_question(
         concept_slug=concept_slug,
         mastery_band=score.mastery_band.value,
     )
+    attempt_row.status = AttemptStatus.COMPLETE.value
     session.commit()
     session.refresh(attempt_row)
 
@@ -178,6 +182,11 @@ def _persist_attempt_for_question(
         score=score,
         feedback=feedback,
     )
+
+
+def _validate_submit_attempt(attempt: StudentAttemptCreate) -> None:
+    if attempt.status != AttemptStatus.SUBMITTED:
+        raise HTTPException(status_code=400, detail="Submit endpoints only accept attempts in `submitted` state.")
 
 
 def ensure_reference_catalog(session: Session) -> ReferenceCatalog:

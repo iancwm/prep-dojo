@@ -79,6 +79,7 @@ def test_submit_reference_attempt_persists_attempt_score_and_feedback(tmp_path: 
         assert stored_attempt is not None
         assert stored_attempt.question_id == stored_question.id
         assert stored_attempt.response_json["response_type"] == "free_text"
+        assert stored_attempt.status == "complete"
         assert stored_score is not None
         assert stored_score.attempt_id == stored_attempt.id
         assert stored_rubric is not None
@@ -136,6 +137,7 @@ def test_generic_reference_question_submit_persists_second_question(tmp_path: Pa
         assert stored_question is not None
         stored_attempt = session.scalar(select(StudentAttempt).where(StudentAttempt.question_id == stored_question.id))
         assert stored_attempt is not None
+        assert stored_attempt.status == "complete"
 
 
 def test_create_authored_question_persists_bundle_artifacts(tmp_path: Path) -> None:
@@ -466,6 +468,7 @@ def test_submit_authored_question_persists_attempt_score_and_progress(tmp_path: 
         assert stored_question.external_id is None
         assert stored_attempt is not None
         assert stored_attempt.response_json["response_type"] == "free_text"
+        assert stored_attempt.status == "complete"
         assert stored_score is not None
         assert stored_score.overall_score > 0
         assert stored_rubric is not None

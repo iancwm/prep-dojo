@@ -13,9 +13,9 @@ The core backend path implemented today is:
 5. the API returns the persisted attempt id plus structured results
 
 Current limitation in that flow:
-- the attempt row is persisted as `submitted`
+- the attempt row is first persisted as `submitted`
 - scoring and feedback are stored immediately
-- attempt status progression to `scored`, `needs_followup`, or `complete` is not yet modeled as a separate state transition
+- the attempt row is finalized as `complete` in the same persistence path
 
 ## Application Layers
 
@@ -142,7 +142,7 @@ Responsibilities:
 - create or reuse a reference student and practice session
 - persist attempts, scores, feedback, and progress
 - resolve stored questions by `external_id`
-- the persistence layer currently does not store an immutable rubric-version reference alongside the score
+- persist rubric lineage on the score row via `rubric_id` and `rubric_version`
 
 ## Request Flow
 
@@ -186,7 +186,8 @@ Flow:
 ### Attempt Lifecycle
 
 Current persisted states:
-- `submitted` for newly stored attempts
+- `submitted` at row creation during a submit request
+- `complete` after score and feedback are written
 
 Desired explicit states:
 - `created`
@@ -195,7 +196,9 @@ Desired explicit states:
 - `needs_followup`
 - `complete`
 
-The implementation still needs a dedicated state transition path so the stored attempt row or a companion history table records how an attempt moves after scoring.
+Current implementation:
+- synchronous scoring paths move attempts from `submitted` to `complete` inside one request
+- the reserved `created`, `scored`, and `needs_followup` states remain available for future async or mentor-reviewed flows
 
 ### Practice Session Read
 
@@ -278,8 +281,7 @@ Current passing command:
 - no auth or user identity beyond a seeded reference student
 - no role-aware ownership enforcement around lifecycle actions
 - oral scoring is still transcript-as-text, not true speech or delivery evaluation
-- rubric-version lineage is not yet stored as an immutable field on scored attempts
-- attempt lifecycle transitions are still implicit rather than explicit in storage
+- no dedicated history table for intermediate attempt lifecycle events
 - no UI integration
 
 ## Recommended Next Step

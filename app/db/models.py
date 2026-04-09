@@ -270,6 +270,28 @@ def _ensure_sqlite_lineage_columns() -> None:
                 connection.execute(text("ALTER TABLE scores ADD COLUMN rubric_id CHAR(32)"))
             if "rubric_version" not in score_columns:
                 connection.execute(text("ALTER TABLE scores ADD COLUMN rubric_version INTEGER NOT NULL DEFAULT 1"))
+            connection.execute(
+                text(
+                    """
+                    UPDATE scores
+                    SET rubric_id = (
+                        SELECT rubrics.id
+                        FROM rubrics
+                        JOIN questions ON questions.id = rubrics.question_id
+                        JOIN student_attempts ON student_attempts.question_id = questions.id
+                        WHERE student_attempts.id = scores.attempt_id
+                    ),
+                    rubric_version = COALESCE((
+                        SELECT rubrics.version
+                        FROM rubrics
+                        JOIN questions ON questions.id = rubrics.question_id
+                        JOIN student_attempts ON student_attempts.question_id = questions.id
+                        WHERE student_attempts.id = scores.attempt_id
+                    ), rubric_version)
+                    WHERE rubric_id IS NULL
+                    """
+                )
+            )
 
 
 _ensure_sqlite_lineage_columns()
