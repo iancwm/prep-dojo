@@ -32,6 +32,7 @@ class ConceptCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     topic_slug: str
+    slug: str | None = None
     title: str
     definition: str
     difficulty: DifficultyLevel
@@ -122,6 +123,7 @@ class QuestionCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     concept_slug: str
+    external_id: str | None = None
     assessment_mode: AssessmentModeType
     difficulty: DifficultyLevel
     author_type: AuthorType = AuthorType.HUMAN
@@ -146,6 +148,75 @@ class CommonMistakeCreate(BaseModel):
     mistake_text: str
     why_it_is_wrong: str
     remediation_hint: str
+
+
+class TopicRecord(TopicCreate):
+    id: str
+
+
+class ConceptRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    topic_slug: str
+    slug: str
+    title: str
+    definition: str
+    difficulty: DifficultyLevel
+    prerequisites: list[str] = Field(default_factory=list)
+    status: ContentStatus
+
+
+class QuestionRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    concept_slug: str
+    external_id: str | None = None
+    assessment_mode: AssessmentModeType
+    difficulty: DifficultyLevel
+    author_type: AuthorType
+    status: ContentStatus
+    prompt: str
+    context: str | None = None
+    payload: QuestionPayload
+    version: int
+
+
+class AuthoredQuestionBundleCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    topic: TopicCreate
+    concept: ConceptCreate
+    question: QuestionCreate
+    rubric: RubricDefinition
+    expected_answer: ExpectedAnswerCreate
+    common_mistakes: list[CommonMistakeCreate] = Field(default_factory=list)
+
+
+class AuthoredQuestionBundleRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    topic: TopicRecord
+    concept: ConceptRecord
+    assessment_mode: AssessmentModeDefinition
+    question: QuestionRecord
+    rubric: RubricDefinition
+    expected_answer: ExpectedAnswerCreate
+    common_mistakes: list[CommonMistakeCreate] = Field(default_factory=list)
+
+
+class AuthoredQuestionSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    topic_slug: str
+    concept_slug: str
+    assessment_mode: AssessmentModeType
+    difficulty: DifficultyLevel
+    status: ContentStatus
+    prompt: str
+    version: int
 
 
 class MultipleChoiceResponse(BaseModel):

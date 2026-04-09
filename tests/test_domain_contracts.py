@@ -12,6 +12,7 @@ from app.seeds.reference_data import (
 )
 from app.services.scoring import REFERENCE_QUESTION_ID, score_reference_attempt
 from app.schemas.domain import (
+    AuthoredQuestionBundleCreate,
     FeedbackResult,
     QuestionCreate,
     RubricCriterion,
@@ -74,6 +75,60 @@ def test_rubric_definition_accepts_thresholds_and_criteria() -> None:
         failure_signals=["Defines EV without using it"],
         strong_response_fragments=["normalizes capital structure"],
     )
+
+
+def test_authored_question_bundle_contract_accepts_topic_concept_and_scoring_artifacts() -> None:
+    bundle = AuthoredQuestionBundleCreate.model_validate(
+        {
+            "topic": {
+                "slug": "accounting",
+                "title": "Accounting",
+                "description": "Core accounting concepts for finance interviews.",
+            },
+            "concept": {
+                "topic_slug": "accounting",
+                "slug": "working-capital",
+                "title": "Working Capital",
+                "definition": "Short-term operating assets minus operating liabilities.",
+                "difficulty": "foundational",
+            },
+            "question": {
+                "concept_slug": "working-capital",
+                "assessment_mode": "short_answer",
+                "difficulty": "foundational",
+                "prompt": "Why does an increase in inventory reduce free cash flow?",
+                "payload": {
+                    "question_type": "short_answer",
+                    "prompt": "Why does an increase in inventory reduce free cash flow?",
+                    "response_guidance": ["Explain the cash outflow", "Tie it to working capital"],
+                },
+            },
+            "rubric": {
+                "scoring_style": "rubric",
+                "criteria": [
+                    {
+                        "name": "reasoning",
+                        "description": "Explains the cash flow implication.",
+                        "weight": 1.0,
+                        "min_score": 0,
+                        "max_score": 4,
+                    }
+                ],
+                "thresholds": [
+                    {"band": "needs_review", "min_percentage": 0},
+                    {"band": "interview_ready", "min_percentage": 80},
+                ],
+            },
+            "expected_answer": {
+                "answer_text": "Inventory is a use of cash because the company pays to build inventory before revenue is recognized.",
+                "answer_outline": ["Inventory build requires cash", "This is an increase in working capital"],
+                "key_points": ["use of cash", "working capital"],
+            },
+        }
+    )
+
+    assert bundle.question.payload.question_type == "short_answer"
+    assert bundle.concept.slug == "working-capital"
 
 
 def test_score_and_feedback_contracts_match_assessment_framework() -> None:
@@ -218,3 +273,94 @@ def test_submit_generic_reference_question_endpoint_returns_score_and_feedback()
     assert response.status_code == 200
     assert body["question_id"] == SECONDARY_REFERENCE_QUESTION_ID
     assert body["score"]["overall_score"] > 0
+
+
+def test_authored_question_endpoints_create_and_fetch_bundle() -> None:
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/v1/authored/questions",
+            json={
+                "topic": {
+                    "slug": "accounting",
+                    "title": "Accounting",
+                    "description": "Accounting topics for finance interviews.",
+                },
+                "concept": {
+                    "topic_slug": "accounting",
+                    "slug": "working-capital",
+                    "title": "Working Capital",
+                    "definition": "Operating current assets minus operating current liabilities.",
+                    "difficulty": "foundational",
+                },
+                "question": {
+                    "concept_slug": "working-capital",
+                    "assessment_mode": "short_answer",
+                    "difficulty": "foundational",
+                    "prompt": "Why does an increase in inventory reduce free cash flow?",
+                    "payload": {
+                        "question_type": "short_answer",
+                        "prompt": "Why does an increase in inventory reduce free cash flow?",
+                        "response_guidance": [
+                            "Explain the timing of cash leaving the business",
+                            "Connect it to working capital",
+                        ],
+                    },
+                },
+                "rubric": {
+                    "scoring_style": "rubric",
+                    "criteria": [
+                        {
+                            "name": "reasoning",
+                            "description": "Explains why inventory is a use of cash.",
+                            "weight": 0.6,
+                            "min_score": 0,
+                            "max_score": 4,
+                            "strong_response_fragments": ["use of cash", "working capital"],
+                        },
+                        {
+                            "name": "clarity",
+                            "description": "Structures the answer clearly.",
+                            "weight": 0.4,
+                            "min_score": 0,
+                            "max_score": 4,
+                        },
+                    ],
+                    "thresholds": [
+                        {"band": "needs_review", "min_percentage": 0},
+                        {"band": "ready_for_retry", "min_percentage": 60},
+                        {"band": "interview_ready", "min_percentage": 80},
+                    ],
+                },
+                "expected_answer": {
+                    "answer_text": "An increase in inventory is a use of cash because the company spends cash before the inventory turns into revenue.",
+                    "answer_outline": ["Inventory build consumes cash", "That raises working capital and reduces FCF"],
+                    "key_points": ["use of cash", "working capital", "free cash flow"],
+                    "acceptable_variants": ["cash is tied up in inventory"],
+                },
+                "common_mistakes": [
+                    {
+                        "mistake_text": "Inventory increase boosts free cash flow because inventory is an asset.",
+                        "why_it_is_wrong": "Assets can still require cash outflows.",
+                        "remediation_hint": "Trace the cash movement, not just the balance sheet label.",
+                    }
+                ],
+            },
+        )
+
+        assert create_response.status_code == 201
+        created_body = create_response.json()
+        question_id = created_body["question"]["id"]
+
+        list_response = client.get("/api/v1/authored/questions")
+        assert list_response.status_code == 200
+        summaries = list_response.json()
+
+        fetch_response = client.get(f"/api/v1/authored/questions/{question_id}")
+        assert fetch_response.status_code == 200
+        fetched_body = fetch_response.json()
+
+    assert created_body["question"]["prompt"] == "Why does an increase in inventory reduce free cash flow?"
+    assert created_body["concept"]["slug"] == "working-capital"
+    assert any(item["id"] == question_id for item in summaries)
+    assert fetched_body["question"]["id"] == question_id
+    assert fetched_body["rubric"]["criteria"][0]["name"] == "reasoning"

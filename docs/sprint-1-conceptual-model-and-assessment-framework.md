@@ -27,6 +27,7 @@ Shipped against this spec:
 - SQLAlchemy persistence models
 - local DB initialization
 - seeded valuation module and question catalog
+- authored question-bundle creation and retrieval
 - rubric-backed scoring
 - persistence of attempts, scores, feedback, sessions, and progress
 

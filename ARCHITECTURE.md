@@ -2,7 +2,7 @@
 
 ## Overview
 
-Prep Dojo is currently a small FastAPI service with a typed domain layer, a SQLAlchemy persistence layer, and a seeded finance interview reference catalog.
+Prep Dojo is currently a small FastAPI service with a typed domain layer, a SQLAlchemy persistence layer, a seeded finance interview reference catalog, and a minimal authored question-bundle flow.
 
 The core backend path implemented today is:
 
@@ -22,6 +22,7 @@ File:
 Responsibilities:
 - initialize the database at app startup
 - expose reference read endpoints
+- expose authored create/list/get endpoints
 - expose reference submit endpoints
 - translate request payloads into typed domain models
 
@@ -36,6 +37,8 @@ Responsibilities:
 - define rubric and scoring result structures
 
 Key contracts:
+- `AuthoredQuestionBundleCreate`
+- `AuthoredQuestionBundleRecord`
 - `QuestionCreate`
 - `RubricDefinition`
 - `StudentAttemptCreate`
@@ -75,6 +78,18 @@ Current seeded question ids:
 - `sample-question-enterprise-value`
 - `sample-question-when-equity-value-matters`
 
+### Authoring
+
+File:
+- [app/services/authoring.py](/Users/iancwm/git/prep-dojo/app/services/authoring.py)
+
+Responsibilities:
+- validate authored question-bundle creation payloads
+- create or update the parent topic and concept
+- ensure assessment modes exist in the database
+- persist the authored question, rubric, expected answer, and common mistakes
+- list and fetch authored question bundles by database id
+
 ### Scoring
 
 File:
@@ -104,6 +119,18 @@ Responsibilities:
 - resolve stored questions by `external_id`
 
 ## Request Flow
+
+### Authored Question Create
+
+Route:
+- `POST /api/v1/authored/questions`
+
+Flow:
+- FastAPI validates the payload as `AuthoredQuestionBundleCreate`
+- authoring service validates bundle consistency across topic, concept, and question
+- topic, concept, and assessment mode are created or reused
+- question, rubric, expected answer, and common mistakes are persisted together
+- response returns the stored authored bundle with database ids
 
 ### Generic Reference Submit
 
@@ -152,6 +179,7 @@ Files:
 Coverage today:
 - schema contract validation
 - seeded reference content validity
+- authored bundle creation and retrieval
 - scoring behavior for both stored reference questions
 - endpoint behavior
 - persistence into a temporary SQLite database
@@ -167,11 +195,10 @@ Current passing command:
 - no migration layer yet
 - no async DB path
 - no auth or user identity beyond a seeded reference student
-- no authored content management
-- no non-reference question retrieval flow
+- authored content exists, but there is no review workflow, editor UI, or ownership enforcement
+- no authored scoring or practice-session submission flow
 - no UI integration
 
 ## Recommended Next Step
 
-The architecture is ready for authored question CRUD and practice-session orchestration. The next major shift should be moving from seeded reference content to database-native authored content with the same scoring and persistence contracts.
-
+The next major shift should be extending scoring and practice-session orchestration from seeded reference content to database-native authored content with the same persistence contracts.

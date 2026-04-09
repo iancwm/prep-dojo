@@ -17,16 +17,16 @@ What exists today:
 - two seeded reference questions for the `Enterprise Value vs Equity Value` concept
 - generic reference question routes
 - a write path that accepts an attempt, scores it, persists it, and returns feedback
+- authored question bundle creation and retrieval routes backed by the database
 - local SQLite storage by default
 - tests covering schema validation, scoring, API behavior, and persistence
 
 What does not exist yet:
-- authored question creation flows
 - authentication and role-based access
 - Alembic migrations
 - production-grade database configuration
 - student-facing UI
-- mentor review workflows beyond seeded content
+- mentor review workflows beyond minimal content creation
 
 ## Quick Start
 
@@ -80,6 +80,11 @@ Reference scoring:
 - `POST /api/v1/reference/modules/valuation-enterprise-value/submit`
 - `POST /api/v1/reference/questions/{question_external_id}/submit`
 
+Authored content:
+- `POST /api/v1/authored/questions`
+- `GET /api/v1/authored/questions`
+- `GET /api/v1/authored/questions/{question_id}`
+
 ## Project Layout
 
 - `app/main.py`
@@ -106,13 +111,12 @@ Reference scoring:
 ## Known Constraints
 
 - The current scoring logic is still heuristic. It is driven by stored rubric data, but it is not a true semantic evaluator yet.
-- The “reference” question set is seeded code, not authored content from a CMS or admin flow.
-- The generic question routes are only generic across stored reference questions, not across arbitrary new authored questions.
+- Authored content can now be stored in the database, but there is still no auth, review workflow, or admin UI around it.
+- The generic scoring routes are still only wired to seeded reference questions, not arbitrary authored questions.
 
 ## Next Likely Steps
 
-- add authored question creation and retrieval flows
 - introduce Alembic and real migration management
-- replace seeded-only catalog assumptions with database-native question authoring
+- extend scoring and practice-session orchestration to authored questions
+- add authored topic and concept management beyond question-bundle creation
 - add practice-session APIs that work beyond the reference module
-

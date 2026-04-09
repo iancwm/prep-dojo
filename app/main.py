@@ -1,10 +1,14 @@
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_session, init_db
-from app.schemas.domain import StudentAttemptCreate, build_reference_assessment_modes
+from app.schemas.domain import (
+    AuthoredQuestionBundleCreate,
+    StudentAttemptCreate,
+    build_reference_assessment_modes,
+)
 from app.seeds.reference_data import (
     PRIMARY_REFERENCE_QUESTION_ID,
     SECONDARY_REFERENCE_QUESTION_ID,
@@ -12,6 +16,11 @@ from app.seeds.reference_data import (
     get_reference_follow_up_question_bundle,
     get_reference_module,
     get_reference_progress_snapshot,
+)
+from app.services.authoring import (
+    create_authored_question_bundle,
+    get_authored_question_bundle,
+    list_authored_question_summaries,
 )
 from app.services.persistence import ensure_reference_catalog, persist_reference_attempt
 
@@ -63,6 +72,24 @@ def get_reference_question(question_external_id: str, session: Session = Depends
     if question_external_id == SECONDARY_REFERENCE_QUESTION_ID:
         return get_reference_follow_up_question_bundle().model_dump(mode="json")
     raise HTTPException(status_code=404, detail="Unknown reference question.")
+
+
+@app.post("/api/v1/authored/questions", status_code=status.HTTP_201_CREATED)
+def create_authored_question(
+    payload: AuthoredQuestionBundleCreate,
+    session: Session = Depends(get_session),
+) -> dict:
+    return create_authored_question_bundle(session, payload).model_dump(mode="json")
+
+
+@app.get("/api/v1/authored/questions")
+def list_authored_questions(session: Session = Depends(get_session)) -> list[dict]:
+    return [item.model_dump(mode="json") for item in list_authored_question_summaries(session)]
+
+
+@app.get("/api/v1/authored/questions/{question_id}")
+def get_authored_question(question_id: str, session: Session = Depends(get_session)) -> dict:
+    return get_authored_question_bundle(session, question_id).model_dump(mode="json")
 
 
 @app.post("/api/v1/reference/modules/valuation-enterprise-value/submit")

@@ -9,12 +9,13 @@ Mode: Startup
 ## Implementation Snapshot
 - Backend foundation exists in FastAPI, Pydantic, and SQLAlchemy.
 - The app currently ships a reference valuation module with two stored short-answer questions.
+- The app now also supports minimal database-native authored question bundles.
 - There is a working write path that accepts a student attempt, scores it, persists attempt/score/feedback, and updates module progress.
 - Local execution uses SQLite by default via `prep_dojo.db`.
 - Tests currently cover domain contracts, scoring, API behavior, and persistence.
 
 ## Current Limits
-- This is still reference-content driven, not authoring driven.
+- Scored practice is still reference-content driven even though authored bundles can now be created and retrieved.
 - Scoring is heuristic and rubric-backed, not LLM-based.
 - There is no student UI or mentor review interface yet.
 - There are no migrations or production deployment docs yet.
@@ -123,6 +124,7 @@ Approach A is a good first slice, but it risks becoming a static library. Approa
 - Typed domain models for topics, concepts, question payloads, rubrics, attempts, scores, and feedback.
 - SQLAlchemy models for persistent storage.
 - Seeded reference catalog for valuation.
+- Database-native authored question bundle creation and retrieval.
 - Reference read endpoints.
 - Reference submit endpoints, including a generic question submit route.
 - Persistence of attempts, scores, feedback, practice sessions, and module progress.

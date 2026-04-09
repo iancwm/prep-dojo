@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -7,7 +8,19 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.base import Base
-from app.db.models import Feedback, ModuleProgress, PracticeSession, Question, Score, StudentAttempt
+from app.db.models import (
+    AssessmentMode,
+    Concept,
+    ExpectedAnswer,
+    Feedback,
+    ModuleProgress,
+    PracticeSession,
+    Question,
+    Rubric,
+    Score,
+    StudentAttempt,
+    Topic,
+)
 from app.db.session import get_session
 from app.main import app
 from app.seeds.reference_data import SECONDARY_REFERENCE_QUESTION_ID
@@ -119,3 +132,106 @@ def test_generic_reference_question_submit_persists_second_question(tmp_path: Pa
         assert stored_question is not None
         stored_attempt = session.scalar(select(StudentAttempt).where(StudentAttempt.question_id == stored_question.id))
         assert stored_attempt is not None
+
+
+def test_create_authored_question_persists_bundle_artifacts(tmp_path: Path) -> None:
+    database_path = tmp_path / "prep-dojo-authored.db"
+    engine = create_engine(f"sqlite:///{database_path}", future=True, connect_args={"check_same_thread": False})
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_session():
+        session = TestingSessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_session] = override_get_session
+
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/api/v1/authored/questions",
+                json={
+                    "topic": {
+                        "slug": "accounting",
+                        "title": "Accounting",
+                        "description": "Accounting topics for interview prep.",
+                    },
+                    "concept": {
+                        "topic_slug": "accounting",
+                        "slug": "working-capital",
+                        "title": "Working Capital",
+                        "definition": "Operating current assets minus operating current liabilities.",
+                        "difficulty": "foundational",
+                    },
+                    "question": {
+                        "concept_slug": "working-capital",
+                        "assessment_mode": "short_answer",
+                        "difficulty": "foundational",
+                        "prompt": "Why does an increase in inventory reduce free cash flow?",
+                        "payload": {
+                            "question_type": "short_answer",
+                            "prompt": "Why does an increase in inventory reduce free cash flow?",
+                        },
+                    },
+                    "rubric": {
+                        "scoring_style": "rubric",
+                        "criteria": [
+                            {
+                                "name": "reasoning",
+                                "description": "Explains why inventory is a use of cash.",
+                                "weight": 1.0,
+                                "min_score": 0,
+                                "max_score": 4,
+                            }
+                        ],
+                        "thresholds": [
+                            {"band": "needs_review", "min_percentage": 0},
+                            {"band": "interview_ready", "min_percentage": 80},
+                        ],
+                    },
+                    "expected_answer": {
+                        "answer_text": "Inventory build consumes cash before revenue is recognized.",
+                        "answer_outline": ["Inventory build uses cash", "Working capital rises"],
+                        "key_points": ["use of cash", "working capital"],
+                    },
+                    "common_mistakes": [
+                        {
+                            "mistake_text": "Inventory is always good for free cash flow because it is an asset.",
+                            "why_it_is_wrong": "Assets can still absorb cash.",
+                            "remediation_hint": "Track the cash movement directly.",
+                        }
+                    ],
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    created_body = response.json()
+
+    with Session(engine) as session:
+        stored_topic = session.scalar(select(Topic).where(Topic.slug == "accounting"))
+        stored_concept = session.scalar(select(Concept).where(Concept.slug == "working-capital"))
+        stored_question = session.scalar(
+            select(Question).where(Question.id == uuid.UUID(created_body["question"]["id"]))
+        )
+        stored_assessment_mode = session.scalar(
+            select(AssessmentMode).where(AssessmentMode.name == "short_answer")
+        )
+        stored_rubric = session.scalar(select(Rubric))
+        stored_expected_answer = session.scalar(select(ExpectedAnswer))
+
+        assert stored_topic is not None
+        assert stored_concept is not None
+        assert stored_concept.topic_id == stored_topic.id
+        assert stored_question is not None
+        assert stored_question.concept_id == stored_concept.id
+        assert stored_question.assessment_mode_id == stored_assessment_mode.id
+        assert stored_question.external_id is None
+        assert stored_rubric is not None
+        assert stored_rubric.question_id == stored_question.id
+        assert stored_expected_answer is not None
+        assert stored_expected_answer.question_id == stored_question.id
