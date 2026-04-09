@@ -2,7 +2,7 @@
 
 ## Overview
 
-Prep Dojo is currently a small FastAPI service with a typed domain layer, a SQLAlchemy persistence layer, a seeded finance interview reference catalog, and a minimal authored question-bundle plus submit flow.
+Prep Dojo is currently a small FastAPI service with a typed domain layer, a SQLAlchemy persistence layer, a seeded finance interview reference catalog, a minimal authored question-bundle plus submit flow, and first-class practice session APIs.
 
 The core backend path implemented today is:
 
@@ -22,6 +22,7 @@ File:
 Responsibilities:
 - initialize the database at app startup
 - expose reference read endpoints
+- expose practice-session create/list/get endpoints
 - expose authored create/list/get endpoints
 - expose authored submit endpoints
 - expose reference submit endpoints
@@ -40,6 +41,8 @@ Responsibilities:
 Key contracts:
 - `AuthoredQuestionBundleCreate`
 - `AuthoredQuestionBundleRecord`
+- `PracticeSessionCreate`
+- `PracticeSessionRecord`
 - `QuestionCreate`
 - `RubricDefinition`
 - `StudentAttemptCreate`
@@ -107,7 +110,18 @@ Responsibilities:
 Current scoring model:
 - heuristic, not LLM-based
 - uses rubric criterion names, strong fragments, expected key points, expected outline, and common mistakes
-- supports stored short-answer reference questions
+- supports stored short-answer, oral-transcript, and multiple-choice questions
+
+### Practice Sessions
+
+File:
+- [app/services/practice_sessions.py](/Users/iancwm/git/prep-dojo/app/services/practice_sessions.py)
+
+Responsibilities:
+- create named practice sessions before attempt submission
+- list recent practice sessions
+- return a session read model with attempt history and scores
+- preserve `client_session_id` as the external session identifier
 
 ### Persistence Workflow
 
@@ -145,6 +159,18 @@ Flow:
 - scoring runs against the stored rubric and expected-answer records
 - attempt, score, feedback, and module progress are written to the DB
 - response returns `attempt_id`, `question_id`, `session_id`, `score`, and `feedback`
+
+### Practice Session Read
+
+Routes:
+- `POST /api/v1/practice-sessions`
+- `GET /api/v1/practice-sessions`
+- `GET /api/v1/practice-sessions/{session_id}`
+
+Flow:
+- create route provisions or reuses a named session
+- list route returns session summaries with source and attempt counts
+- detail route returns attempt history, question prompts, scores, and mastery bands for that session
 
 ### Generic Reference Submit
 
@@ -195,6 +221,8 @@ Coverage today:
 - seeded reference content validity
 - authored bundle creation and retrieval
 - authored bundle submission and persistence
+- authored multiple-choice scoring
+- practice-session creation and history retrieval
 - scoring behavior for both stored reference questions
 - endpoint behavior
 - persistence into a temporary SQLite database
@@ -211,9 +239,9 @@ Current passing command:
 - no async DB path
 - no auth or user identity beyond a seeded reference student
 - authored content exists, but there is no review workflow, editor UI, or ownership enforcement
-- scoring currently works for rubric-backed free-text answers only
+- oral scoring is still transcript-as-text, not true speech or delivery evaluation
 - no UI integration
 
 ## Recommended Next Step
 
-The next major shift should be adding first-class practice-session orchestration and evaluator support for additional authored response modes beyond free-text.
+The next major shift should be adding review/publishing workflows and richer session orchestration such as timing, completion, and queued question sets.

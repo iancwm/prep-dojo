@@ -361,3 +361,106 @@ def test_submit_authored_question_persists_attempt_score_and_progress(tmp_path: 
             "ready_for_retry",
             "interview_ready",
         }
+
+
+def test_practice_session_endpoints_show_attempt_history(tmp_path: Path) -> None:
+    database_path = tmp_path / "prep-dojo-session-history.db"
+    engine = create_engine(f"sqlite:///{database_path}", future=True, connect_args={"check_same_thread": False})
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_session():
+        session = TestingSessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_session] = override_get_session
+
+    try:
+        with TestClient(app) as client:
+            session_response = client.post(
+                "/api/v1/practice-sessions",
+                json={"session_id": "session-history-1", "source": "authored-practice"},
+            )
+            assert session_response.status_code == 201
+
+            create_question_response = client.post(
+                "/api/v1/authored/questions",
+                json={
+                    "topic": {
+                        "slug": "accounting",
+                        "title": "Accounting",
+                        "description": "Accounting topics for interview prep.",
+                    },
+                    "concept": {
+                        "topic_slug": "accounting",
+                        "slug": "working-capital",
+                        "title": "Working Capital",
+                        "definition": "Operating current assets minus operating current liabilities.",
+                        "difficulty": "foundational",
+                    },
+                    "question": {
+                        "concept_slug": "working-capital",
+                        "assessment_mode": "short_answer",
+                        "difficulty": "foundational",
+                        "prompt": "Why does an increase in inventory reduce free cash flow?",
+                        "payload": {
+                            "question_type": "short_answer",
+                            "prompt": "Why does an increase in inventory reduce free cash flow?",
+                        },
+                    },
+                    "rubric": {
+                        "scoring_style": "rubric",
+                        "criteria": [
+                            {
+                                "name": "reasoning",
+                                "description": "Explains why inventory is a use of cash.",
+                                "weight": 1.0,
+                                "min_score": 0,
+                                "max_score": 4,
+                            }
+                        ],
+                        "thresholds": [
+                            {"band": "needs_review", "min_percentage": 0},
+                            {"band": "interview_ready", "min_percentage": 80},
+                        ],
+                    },
+                    "expected_answer": {
+                        "answer_text": "Inventory build consumes cash before revenue is recognized.",
+                        "answer_outline": ["Inventory build uses cash", "Working capital rises"],
+                        "key_points": ["use of cash", "working capital"],
+                    },
+                },
+            )
+            question_id = create_question_response.json()["question"]["id"]
+
+            submit_response = client.post(
+                f"/api/v1/authored/questions/{question_id}/submit",
+                json={
+                    "question_id": question_id,
+                    "session_id": "session-history-1",
+                    "response": {
+                        "response_type": "free_text",
+                        "content": "Inventory uses cash up front, increases working capital, and lowers free cash flow.",
+                    },
+                },
+            )
+            assert submit_response.status_code == 200
+
+            list_response = client.get("/api/v1/practice-sessions")
+            detail_response = client.get("/api/v1/practice-sessions/session-history-1")
+    finally:
+        app.dependency_overrides.clear()
+
+    list_body = list_response.json()
+    detail_body = detail_response.json()
+
+    assert list_response.status_code == 200
+    assert any(item["session_id"] == "session-history-1" for item in list_body)
+    assert detail_response.status_code == 200
+    assert detail_body["session_id"] == "session-history-1"
+    assert detail_body["source"] == "authored-practice"
+    assert len(detail_body["attempts"]) == 1
+    assert detail_body["attempts"][0]["question_id"] == question_id

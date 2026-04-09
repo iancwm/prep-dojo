@@ -29,6 +29,8 @@ Shipped against this spec:
 - seeded valuation module and question catalog
 - authored question-bundle creation and retrieval
 - authored question submission for stored free-text prompts
+- practice-session creation and retrieval
+- authored multiple-choice support with automatic scoring
 - rubric-backed scoring
 - persistence of attempts, scores, feedback, sessions, and progress
 

@@ -11,12 +11,13 @@ Mode: Startup
 - The app currently ships a reference valuation module with two stored short-answer questions.
 - The app now also supports minimal database-native authored question bundles.
 - The app now supports authored question submission for rubric-backed free-text responses.
+- The app now exposes first-class practice session APIs and supports multiple-choice plus oral-transcript authored responses.
 - There is a working write path that accepts a student attempt, scores it, persists attempt/score/feedback, and updates module progress.
 - Local execution uses SQLite by default via `prep_dojo.db`.
 - Tests currently cover domain contracts, scoring, API behavior, and persistence.
 
 ## Current Limits
-- Scored practice now works for both seeded reference questions and authored free-text questions.
+- Scored practice now works for seeded reference questions and authored stored questions across multiple response types.
 - Scoring is heuristic and rubric-backed, not LLM-based.
 - There is no student UI or mentor review interface yet.
 - There are no migrations or production deployment docs yet.
@@ -127,6 +128,7 @@ Approach A is a good first slice, but it risks becoming a static library. Approa
 - Seeded reference catalog for valuation.
 - Database-native authored question bundle creation and retrieval.
 - Database-native authored question submission and persistence.
+- Practice session creation and session-history retrieval.
 - Reference read endpoints.
 - Reference submit endpoints, including a generic question submit route.
 - Persistence of attempts, scores, feedback, practice sessions, and module progress.

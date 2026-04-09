@@ -72,7 +72,7 @@ class MasteryBand(StrEnum):
 
 
 class ScoringMethod(StrEnum):
+    AUTOMATIC = "automatic"
     RUBRIC_MANUAL = "rubric_manual"
     RUBRIC_AI = "rubric_ai"
     HYBRID = "hybrid"
-

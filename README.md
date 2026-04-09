@@ -16,9 +16,10 @@ This is not yet a full product. It is a validated backend skeleton with a workin
 What exists today:
 - two seeded reference questions for the `Enterprise Value vs Equity Value` concept
 - generic reference question routes
+- first-class practice session create/list/get routes
 - a write path that accepts an attempt, scores it, persists it, and returns feedback
 - authored question bundle creation and retrieval routes backed by the database
-- authored question submission and scoring for rubric-backed free-text answers
+- authored question submission and scoring for rubric-backed free-text, oral-transcript, and multiple-choice answers
 - local SQLite storage by default
 - tests covering schema validation, scoring, API behavior, and persistence
 
@@ -87,6 +88,11 @@ Authored content:
 - `GET /api/v1/authored/questions/{question_id}`
 - `POST /api/v1/authored/questions/{question_id}/submit`
 
+Practice sessions:
+- `POST /api/v1/practice-sessions`
+- `GET /api/v1/practice-sessions`
+- `GET /api/v1/practice-sessions/{session_id}`
+
 ## Project Layout
 
 - `app/main.py`
@@ -105,6 +111,8 @@ Authored content:
   Scoring logic for stored rubric-backed questions.
 - `app/services/persistence.py`
   Catalog seeding and database persistence for attempts/results.
+- `app/services/practice_sessions.py`
+  Practice session creation and session-history read models.
 - `tests/`
   Contract, API, and persistence tests.
 - `docs/`
@@ -114,11 +122,11 @@ Authored content:
 
 - The current scoring logic is still heuristic. It is driven by stored rubric data, but it is not a true semantic evaluator yet.
 - Authored content can now be stored in the database, but there is still no auth, review workflow, or admin UI around it.
-- The scoring path currently supports rubric-backed free-text answers. Other response modes still need their own evaluators.
+- The scoring path now supports stored free-text, oral-transcript, and multiple-choice responses, but the oral path is still heuristic text scoring rather than true spoken-answer evaluation.
 
 ## Next Likely Steps
 
 - introduce Alembic and real migration management
 - add authored topic and concept management beyond question-bundle creation
-- add first-class practice-session APIs instead of using only per-question submit routes
-- add evaluators for multiple choice and oral recall authored questions
+- add review and publishing workflows around authored content
+- add richer session lifecycle controls such as completion, timing, and ordered question queues

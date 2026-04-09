@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from fastapi import HTTPException
 
@@ -52,6 +53,7 @@ def score_attempt_for_question(
 
     return score_attempt_from_contract(
         attempt=attempt,
+        question_payload=question.payload_json,
         rubric_criteria=[RubricCriterion.model_validate(item) for item in rubric.criteria_json],
         rubric_thresholds=rubric.thresholds_json,
         expected_key_points=expected_answer.key_points_json,
@@ -63,16 +65,59 @@ def score_attempt_for_question(
 def score_attempt_from_contract(
     *,
     attempt: StudentAttemptCreate,
+    question_payload: dict[str, Any] | None = None,
     rubric_criteria: list[RubricCriterion],
     rubric_thresholds: list,
     expected_key_points: list[str],
     expected_outline: list[str],
     common_mistakes: list[str],
 ) -> tuple[ScoreResult, FeedbackResult]:
+    question_type = question_payload.get("question_type") if question_payload else None
+    if attempt.response.response_type == "multiple_choice":
+        return _score_multiple_choice_response(
+            attempt=attempt,
+            question_payload=question_payload,
+            rubric_criteria=rubric_criteria,
+            rubric_thresholds=rubric_thresholds,
+        )
+    if attempt.response.response_type == "oral_transcript":
+        if question_type not in {None, "oral_recall"}:
+            raise HTTPException(status_code=400, detail="Question does not accept oral transcript responses.")
+        return _score_textual_response(
+            content=attempt.response.transcript.strip(),
+            rubric_criteria=rubric_criteria,
+            rubric_thresholds=rubric_thresholds,
+            expected_key_points=expected_key_points,
+            expected_outline=expected_outline,
+            common_mistakes=common_mistakes,
+            scoring_method=ScoringMethod.HYBRID,
+        )
     if attempt.response.response_type != "free_text":
-        raise HTTPException(status_code=400, detail="Reference scoring currently supports free_text only.")
+        raise HTTPException(status_code=400, detail="Unsupported response type.")
+    if question_type == "mcq_single":
+        raise HTTPException(status_code=400, detail="Question does not accept free-text responses.")
 
-    content = attempt.response.content.strip()
+    return _score_textual_response(
+        content=attempt.response.content.strip(),
+        rubric_criteria=rubric_criteria,
+        rubric_thresholds=rubric_thresholds,
+        expected_key_points=expected_key_points,
+        expected_outline=expected_outline,
+        common_mistakes=common_mistakes,
+        scoring_method=ScoringMethod.HYBRID,
+    )
+
+
+def _score_textual_response(
+    *,
+    content: str,
+    rubric_criteria: list[RubricCriterion],
+    rubric_thresholds: list,
+    expected_key_points: list[str],
+    expected_outline: list[str],
+    common_mistakes: list[str],
+    scoring_method: ScoringMethod,
+) -> tuple[ScoreResult, FeedbackResult]:
     lowered = _normalize_text(content)
 
     criterion_scores = [
@@ -99,7 +144,52 @@ def score_attempt_from_contract(
     score = ScoreResult(
         overall_score=overall_score,
         mastery_band=mastery_band,
-        scoring_method=ScoringMethod.HYBRID,
+        scoring_method=scoring_method,
+        criterion_scores=criterion_scores,
+    )
+    return score, feedback
+
+
+def _score_multiple_choice_response(
+    *,
+    attempt: StudentAttemptCreate,
+    question_payload: dict[str, Any] | None,
+    rubric_criteria: list[RubricCriterion],
+    rubric_thresholds: list,
+) -> tuple[ScoreResult, FeedbackResult]:
+    if question_payload is None or question_payload.get("question_type") != "mcq_single":
+        raise HTTPException(status_code=400, detail="Question does not accept multiple-choice responses.")
+
+    correct_option_id = question_payload.get("correct_option_id")
+    explanation = question_payload.get("explanation", "")
+    selected_option_id = attempt.response.selected_option_id
+    is_correct = selected_option_id == correct_option_id
+
+    criterion_scores = []
+    for criterion in rubric_criteria:
+        score = criterion.max_score if is_correct else 0
+        note = "Selected the correct option." if is_correct else "Selected the wrong option."
+        criterion_scores.append(
+            CriterionScore(
+                criterion_name=criterion.name,
+                score=score,
+                max_score=criterion.max_score,
+                notes=note,
+            )
+        )
+
+    overall_score = _calculate_overall_score(criterion_scores, rubric_criteria)
+    mastery_band = _resolve_mastery_band(overall_score, rubric_thresholds)
+    feedback = _build_multiple_choice_feedback(
+        is_correct=is_correct,
+        explanation=explanation,
+        selected_option_id=selected_option_id,
+        correct_option_id=correct_option_id,
+    )
+    score = ScoreResult(
+        overall_score=overall_score,
+        mastery_band=mastery_band,
+        scoring_method=ScoringMethod.AUTOMATIC,
         criterion_scores=criterion_scores,
     )
     return score, feedback
@@ -339,6 +429,34 @@ def _build_feedback(
         gaps=gaps,
         next_step=next_step,
         remediation_hints=remediation_hints,
+    )
+
+
+def _build_multiple_choice_feedback(
+    *,
+    is_correct: bool,
+    explanation: str,
+    selected_option_id: str,
+    correct_option_id: str | None,
+) -> FeedbackResult:
+    if is_correct:
+        return FeedbackResult(
+            strengths=["You selected the correct option."],
+            gaps=[],
+            next_step="Explain the logic behind that choice out loud before moving on.",
+            remediation_hints=[explanation] if explanation else [],
+        )
+
+    hints = [explanation] if explanation else []
+    gaps = ["The selected option does not match the strongest answer pattern for this concept."]
+    if correct_option_id is not None:
+        gaps.append(f"Review why `{correct_option_id}` is stronger than `{selected_option_id}`.")
+
+    return FeedbackResult(
+        strengths=[],
+        gaps=gaps,
+        next_step="Review the explanation, then retry the question without looking at the options first.",
+        remediation_hints=hints,
     )
 
 

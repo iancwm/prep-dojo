@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -290,6 +291,47 @@ class ModuleProgressSummary(BaseModel):
     topic_id: str
     progress_status: ProgressStatus
     concept_mastery: dict[str, MasteryBand] = Field(default_factory=dict)
+
+
+class PracticeSessionCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str | None = None
+    source: str = "practice-session"
+
+
+class PracticeSessionSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+    source: str
+    started_at: datetime
+    completed_at: datetime | None = None
+    attempt_count: int = 0
+
+
+class PracticeSessionAttemptSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    attempt_id: str
+    question_id: str
+    prompt: str
+    response_type: str
+    status: AttemptStatus
+    submitted_at: datetime
+    overall_score: float | None = None
+    mastery_band: MasteryBand | None = None
+
+
+class PracticeSessionRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str
+    user_id: str
+    source: str
+    started_at: datetime
+    completed_at: datetime | None = None
+    attempts: list[PracticeSessionAttemptSummary] = Field(default_factory=list)
 
 
 class ReferenceQuestionBundle(BaseModel):

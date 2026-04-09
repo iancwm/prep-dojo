@@ -454,3 +454,81 @@ def test_authored_question_submit_endpoint_returns_score_and_feedback() -> None:
     assert body["question_id"] == question_id
     assert body["score"]["overall_score"] > 0
     assert body["feedback"]["next_step"]
+
+
+def test_authored_multiple_choice_submit_returns_automatic_score() -> None:
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/v1/authored/questions",
+            json={
+                "topic": {
+                    "slug": "valuation",
+                    "title": "Valuation",
+                    "description": "Valuation concepts for interviews.",
+                },
+                "concept": {
+                    "topic_slug": "valuation",
+                    "slug": "valuation-multiples",
+                    "title": "Valuation Multiples",
+                    "definition": "Common multiples used in interviews.",
+                    "difficulty": "foundational",
+                },
+                "question": {
+                    "concept_slug": "valuation-multiples",
+                    "assessment_mode": "multiple_choice",
+                    "difficulty": "foundational",
+                    "prompt": "Which multiple is most useful for comparing companies with different capital structures?",
+                    "payload": {
+                        "question_type": "mcq_single",
+                        "prompt": "Which multiple is most useful for comparing companies with different capital structures?",
+                        "options": [
+                            {"id": "a", "label": "P / E"},
+                            {"id": "b", "label": "EV / EBITDA"},
+                            {"id": "c", "label": "Dividend Yield"},
+                        ],
+                        "correct_option_id": "b",
+                        "explanation": "EV / EBITDA neutralizes differences in leverage better than equity-value-based multiples.",
+                    },
+                },
+                "rubric": {
+                    "scoring_style": "automatic",
+                    "criteria": [
+                        {
+                            "name": "recall",
+                            "description": "Selects the correct multiple.",
+                            "weight": 1.0,
+                            "min_score": 0,
+                            "max_score": 4,
+                        }
+                    ],
+                    "thresholds": [
+                        {"band": "needs_review", "min_percentage": 0},
+                        {"band": "interview_ready", "min_percentage": 80},
+                    ],
+                },
+                "expected_answer": {
+                    "answer_text": "EV / EBITDA is best because it compares operating value independent of capital structure.",
+                    "key_points": ["EV / EBITDA", "capital structure"],
+                },
+            },
+        )
+        question_id = create_response.json()["question"]["id"]
+
+        submit_response = client.post(
+            f"/api/v1/authored/questions/{question_id}/submit",
+            json={
+                "question_id": question_id,
+                "session_id": "authored-mcq-session-1",
+                "response": {
+                    "response_type": "multiple_choice",
+                    "selected_option_id": "b",
+                },
+            },
+        )
+
+    body = submit_response.json()
+
+    assert submit_response.status_code == 200
+    assert body["score"]["mastery_band"] == MasteryBand.INTERVIEW_READY
+    assert body["score"]["scoring_method"] == ScoringMethod.AUTOMATIC
+    assert body["feedback"]["strengths"]
