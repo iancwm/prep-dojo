@@ -31,6 +31,7 @@ Shipped against this spec:
 - authored question submission for stored free-text prompts
 - practice-session creation and retrieval
 - authored multiple-choice support with automatic scoring
+- authored lifecycle transitions across draft, reviewed, and published
 - rubric-backed scoring
 - persistence of attempts, scores, feedback, sessions, and progress
 

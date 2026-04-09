@@ -87,11 +87,15 @@ def persist_authored_attempt(
     question_row = session.scalar(select(Question).where(Question.id == parsed_id, Question.external_id.is_(None)))
     if question_row is None:
         raise HTTPException(status_code=404, detail="Unknown authored question.")
+    if question_row.status != "published":
+        raise HTTPException(status_code=403, detail="Authored question must be published before submission.")
 
     rubric = session.scalar(select(Rubric).where(Rubric.question_id == question_row.id))
     expected_answer = session.scalar(select(ExpectedAnswer).where(ExpectedAnswer.question_id == question_row.id))
     if rubric is None or expected_answer is None:
         raise HTTPException(status_code=500, detail="Authored question is missing required scoring artifacts.")
+    if rubric.status != "published":
+        raise HTTPException(status_code=403, detail="Authored question rubric must be published before submission.")
 
     common_mistakes = session.scalars(select(CommonMistake).where(CommonMistake.question_id == question_row.id)).all()
     return _persist_attempt_for_question(

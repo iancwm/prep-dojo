@@ -75,6 +75,7 @@ class RubricDefinition(BaseModel):
     criteria: list[RubricCriterion]
     scoring_style: ScoringStyle
     thresholds: list[MasteryThreshold]
+    review_notes: str | None = None
 
 
 class MCQOption(BaseModel):
@@ -205,6 +206,22 @@ class AuthoredQuestionBundleRecord(BaseModel):
     rubric: RubricDefinition
     expected_answer: ExpectedAnswerCreate
     common_mistakes: list[CommonMistakeCreate] = Field(default_factory=list)
+
+
+class ContentStatusTransitionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: ContentStatus
+    review_notes: str | None = None
+
+
+class ContentStatusTransitionResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question_id: str
+    previous_status: ContentStatus
+    current_status: ContentStatus
+    review_notes: str | None = None
 
 
 class AuthoredQuestionSummary(BaseModel):

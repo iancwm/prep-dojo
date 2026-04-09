@@ -231,10 +231,110 @@ def test_create_authored_question_persists_bundle_artifacts(tmp_path: Path) -> N
         assert stored_question.concept_id == stored_concept.id
         assert stored_question.assessment_mode_id == stored_assessment_mode.id
         assert stored_question.external_id is None
+        assert stored_question.status == "draft"
         assert stored_rubric is not None
         assert stored_rubric.question_id == stored_question.id
+        assert stored_rubric.status == "draft"
         assert stored_expected_answer is not None
         assert stored_expected_answer.question_id == stored_question.id
+
+
+def test_authored_question_status_transition_persists_review_and_publish_state(tmp_path: Path) -> None:
+    database_path = tmp_path / "prep-dojo-authored-review.db"
+    engine = create_engine(f"sqlite:///{database_path}", future=True, connect_args={"check_same_thread": False})
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_session():
+        session = TestingSessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_session] = override_get_session
+
+    try:
+        with TestClient(app) as client:
+            create_response = client.post(
+                "/api/v1/authored/questions",
+                json={
+                    "topic": {
+                        "slug": "accounting",
+                        "title": "Accounting",
+                        "description": "Accounting topics for interview prep.",
+                    },
+                    "concept": {
+                        "topic_slug": "accounting",
+                        "slug": "working-capital",
+                        "title": "Working Capital",
+                        "definition": "Operating current assets minus operating current liabilities.",
+                        "difficulty": "foundational",
+                    },
+                    "question": {
+                        "concept_slug": "working-capital",
+                        "assessment_mode": "short_answer",
+                        "difficulty": "foundational",
+                        "prompt": "Why does an increase in inventory reduce free cash flow?",
+                        "payload": {
+                            "question_type": "short_answer",
+                            "prompt": "Why does an increase in inventory reduce free cash flow?",
+                        },
+                    },
+                    "rubric": {
+                        "scoring_style": "rubric",
+                        "criteria": [
+                            {
+                                "name": "reasoning",
+                                "description": "Explains why inventory is a use of cash.",
+                                "weight": 1.0,
+                                "min_score": 0,
+                                "max_score": 4,
+                            }
+                        ],
+                        "thresholds": [
+                            {"band": "needs_review", "min_percentage": 0},
+                            {"band": "interview_ready", "min_percentage": 80},
+                        ],
+                    },
+                    "expected_answer": {
+                        "answer_text": "Inventory build consumes cash before revenue is recognized.",
+                        "answer_outline": ["Inventory build uses cash", "Working capital rises"],
+                        "key_points": ["use of cash", "working capital"],
+                    },
+                },
+            )
+            question_id = create_response.json()["question"]["id"]
+
+            review_response = client.post(
+                f"/api/v1/authored/questions/{question_id}/status",
+                json={"status": "reviewed", "review_notes": "Reviewed and ready for release."},
+            )
+            publish_response = client.post(
+                f"/api/v1/authored/questions/{question_id}/status",
+                json={"status": "published"},
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert review_response.status_code == 200
+    assert publish_response.status_code == 200
+
+    with Session(engine) as session:
+        stored_question = session.scalar(select(Question).where(Question.id == uuid.UUID(question_id)))
+        stored_rubric = session.scalar(select(Rubric).where(Rubric.question_id == stored_question.id))
+        stored_concept = session.scalar(select(Concept).where(Concept.id == stored_question.concept_id))
+        stored_topic = session.scalar(select(Topic).where(Topic.id == stored_concept.topic_id))
+
+        assert stored_question is not None
+        assert stored_question.status == "published"
+        assert stored_rubric is not None
+        assert stored_rubric.status == "published"
+        assert stored_rubric.review_notes == "Reviewed and ready for release."
+        assert stored_concept is not None
+        assert stored_concept.status == "published"
+        assert stored_topic is not None
+        assert stored_topic.status == "published"
 
 
 def test_submit_authored_question_persists_attempt_score_and_progress(tmp_path: Path) -> None:
@@ -313,6 +413,14 @@ def test_submit_authored_question_persists_attempt_score_and_progress(tmp_path: 
                 },
             )
             question_id = create_response.json()["question"]["id"]
+            client.post(
+                f"/api/v1/authored/questions/{question_id}/status",
+                json={"status": "reviewed", "review_notes": "Ready to publish."},
+            )
+            client.post(
+                f"/api/v1/authored/questions/{question_id}/status",
+                json={"status": "published"},
+            )
 
             submit_response = client.post(
                 f"/api/v1/authored/questions/{question_id}/submit",
@@ -435,6 +543,14 @@ def test_practice_session_endpoints_show_attempt_history(tmp_path: Path) -> None
                 },
             )
             question_id = create_question_response.json()["question"]["id"]
+            client.post(
+                f"/api/v1/authored/questions/{question_id}/status",
+                json={"status": "reviewed", "review_notes": "Approved for practice use."},
+            )
+            client.post(
+                f"/api/v1/authored/questions/{question_id}/status",
+                json={"status": "published"},
+            )
 
             submit_response = client.post(
                 f"/api/v1/authored/questions/{question_id}/submit",

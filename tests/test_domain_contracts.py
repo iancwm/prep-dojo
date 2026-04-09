@@ -363,7 +363,117 @@ def test_authored_question_endpoints_create_and_fetch_bundle() -> None:
     assert created_body["concept"]["slug"] == "working-capital"
     assert any(item["id"] == question_id for item in summaries)
     assert fetched_body["question"]["id"] == question_id
+    assert fetched_body["question"]["status"] == "draft"
     assert fetched_body["rubric"]["criteria"][0]["name"] == "reasoning"
+
+
+def test_authored_question_status_flow_requires_review_then_publish() -> None:
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/v1/authored/questions",
+            json={
+                "topic": {
+                    "slug": "accounting",
+                    "title": "Accounting",
+                    "description": "Accounting topics for finance interviews.",
+                },
+                "concept": {
+                    "topic_slug": "accounting",
+                    "slug": "working-capital",
+                    "title": "Working Capital",
+                    "definition": "Operating current assets minus operating current liabilities.",
+                    "difficulty": "foundational",
+                },
+                "question": {
+                    "concept_slug": "working-capital",
+                    "assessment_mode": "short_answer",
+                    "difficulty": "foundational",
+                    "prompt": "Why does an increase in inventory reduce free cash flow?",
+                    "payload": {
+                        "question_type": "short_answer",
+                        "prompt": "Why does an increase in inventory reduce free cash flow?",
+                        "response_guidance": [
+                            "Explain the cash movement",
+                            "Tie it back to working capital",
+                        ],
+                    },
+                },
+                "rubric": {
+                    "scoring_style": "rubric",
+                    "criteria": [
+                        {
+                            "name": "recall",
+                            "description": "Identifies inventory as a use of cash.",
+                            "weight": 0.5,
+                            "min_score": 0,
+                            "max_score": 4,
+                            "strong_response_fragments": ["use of cash", "inventory"],
+                        },
+                        {
+                            "name": "reasoning",
+                            "description": "Explains the working capital consequence.",
+                            "weight": 0.5,
+                            "min_score": 0,
+                            "max_score": 4,
+                            "strong_response_fragments": ["working capital", "cash leaves before revenue"],
+                        },
+                    ],
+                    "thresholds": [
+                        {"band": "needs_review", "min_percentage": 0},
+                        {"band": "ready_for_retry", "min_percentage": 60},
+                        {"band": "interview_ready", "min_percentage": 80},
+                    ],
+                },
+                "expected_answer": {
+                    "answer_text": "Inventory increases reduce free cash flow because cash is tied up before revenue is recognized.",
+                    "answer_outline": ["Inventory build uses cash", "Working capital rises", "Free cash flow falls"],
+                    "key_points": ["inventory", "use of cash", "working capital"],
+                    "acceptable_variants": ["cash is tied up in inventory"],
+                },
+            },
+        )
+        question_id = create_response.json()["question"]["id"]
+
+        blocked_submit_response = client.post(
+            f"/api/v1/authored/questions/{question_id}/submit",
+            json={
+                "question_id": question_id,
+                "session_id": "authored-session-123",
+                "response": {
+                    "response_type": "free_text",
+                    "content": (
+                        "An increase in inventory is a use of cash because the company spends cash before that "
+                        "inventory becomes revenue. That increases working capital and reduces free cash flow."
+                    ),
+                },
+            },
+        )
+
+        review_response = client.post(
+            f"/api/v1/authored/questions/{question_id}/status",
+            json={"status": "reviewed", "review_notes": "Rubric and prompt are realistic enough to publish."},
+        )
+        publish_response = client.post(
+            f"/api/v1/authored/questions/{question_id}/status",
+            json={"status": "published"},
+        )
+        fetch_response = client.get(f"/api/v1/authored/questions/{question_id}")
+
+    blocked_body = blocked_submit_response.json()
+    reviewed_body = review_response.json()
+    published_body = publish_response.json()
+    fetched_body = fetch_response.json()
+
+    assert blocked_submit_response.status_code == 403
+    assert "published" in blocked_body["detail"]
+    assert review_response.status_code == 200
+    assert reviewed_body["previous_status"] == "draft"
+    assert reviewed_body["current_status"] == "reviewed"
+    assert publish_response.status_code == 200
+    assert published_body["current_status"] == "published"
+    assert fetch_response.status_code == 200
+    assert fetched_body["question"]["status"] == "published"
+    assert fetched_body["rubric"]["review_notes"] == "Rubric and prompt are realistic enough to publish."
 
 
 def test_authored_question_submit_endpoint_returns_score_and_feedback() -> None:
@@ -432,6 +542,14 @@ def test_authored_question_submit_endpoint_returns_score_and_feedback() -> None:
             },
         )
         question_id = create_response.json()["question"]["id"]
+        client.post(
+            f"/api/v1/authored/questions/{question_id}/status",
+            json={"status": "reviewed", "review_notes": "Ready for publication."},
+        )
+        client.post(
+            f"/api/v1/authored/questions/{question_id}/status",
+            json={"status": "published"},
+        )
 
         submit_response = client.post(
             f"/api/v1/authored/questions/{question_id}/submit",
@@ -513,6 +631,14 @@ def test_authored_multiple_choice_submit_returns_automatic_score() -> None:
             },
         )
         question_id = create_response.json()["question"]["id"]
+        client.post(
+            f"/api/v1/authored/questions/{question_id}/status",
+            json={"status": "reviewed", "review_notes": "Answer key is accurate."},
+        )
+        client.post(
+            f"/api/v1/authored/questions/{question_id}/status",
+            json={"status": "published"},
+        )
 
         submit_response = client.post(
             f"/api/v1/authored/questions/{question_id}/submit",

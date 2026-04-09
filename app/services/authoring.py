@@ -15,6 +15,8 @@ from app.schemas.domain import (
     AuthoredQuestionSummary,
     CommonMistakeCreate,
     ConceptRecord,
+    ContentStatusTransitionRequest,
+    ContentStatusTransitionResult,
     ExpectedAnswerCreate,
     QuestionRecord,
     RubricCriterion,
@@ -100,16 +102,37 @@ def list_authored_question_summaries(session: Session) -> list[AuthoredQuestionS
     ]
 
 
+def transition_authored_question_status(
+    session: Session,
+    question_id: str,
+    payload: ContentStatusTransitionRequest,
+) -> ContentStatusTransitionResult:
+    question = _get_authored_question_row(session, question_id)
+    if question.rubric is None:
+        raise HTTPException(status_code=500, detail="Authored question is missing rubric state.")
+
+    previous_status = question.status
+    _validate_status_transition(question.status, payload.status.value)
+    if payload.status.value == "reviewed" and not payload.review_notes:
+        raise HTTPException(status_code=400, detail="Review notes are required when marking content as reviewed.")
+
+    question.status = payload.status.value
+    question.rubric.status = payload.status.value
+    if payload.review_notes is not None:
+        question.rubric.review_notes = payload.review_notes
+    _promote_parent_statuses(question, payload.status.value)
+
+    session.commit()
+    return ContentStatusTransitionResult(
+        question_id=str(question.id),
+        previous_status=previous_status,
+        current_status=payload.status,
+        review_notes=payload.review_notes,
+    )
+
+
 def get_authored_question_bundle(session: Session, question_id: str) -> AuthoredQuestionBundleRecord:
-    try:
-        parsed_id = uuid.UUID(question_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=404, detail="Unknown authored question.") from exc
-
-    question = session.scalar(select(Question).where(Question.id == parsed_id, Question.external_id.is_(None)))
-    if question is None:
-        raise HTTPException(status_code=404, detail="Unknown authored question.")
-
+    question = _get_authored_question_row(session, question_id)
     if question.rubric is None or question.expected_answer is None:
         raise HTTPException(status_code=500, detail="Authored question is missing required scoring artifacts.")
 
@@ -155,6 +178,7 @@ def get_authored_question_bundle(session: Session, question_id: str) -> Authored
             criteria=[RubricCriterion.model_validate(item) for item in question.rubric.criteria_json],
             scoring_style=question.rubric.scoring_style,
             thresholds=question.rubric.thresholds_json,
+            review_notes=question.rubric.review_notes,
         ),
         expected_answer=ExpectedAnswerCreate(
             answer_text=question.expected_answer.answer_text,
@@ -181,6 +205,48 @@ def _validate_bundle_contract(payload: AuthoredQuestionBundleCreate) -> None:
         raise HTTPException(status_code=400, detail="Question concept_slug must match the concept slug.")
     if payload.question.payload.prompt != payload.question.prompt:
         raise HTTPException(status_code=400, detail="Question payload prompt must match the question prompt.")
+
+
+def _get_authored_question_row(session: Session, question_id: str) -> Question:
+    try:
+        parsed_id = uuid.UUID(question_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Unknown authored question.") from exc
+
+    question = session.scalar(select(Question).where(Question.id == parsed_id, Question.external_id.is_(None)))
+    if question is None:
+        raise HTTPException(status_code=404, detail="Unknown authored question.")
+    return question
+
+
+def _validate_status_transition(current_status: str, target_status: str) -> None:
+    allowed_transitions = {
+        "draft": {"reviewed", "archived"},
+        "reviewed": {"draft", "published", "archived"},
+        "published": {"archived"},
+        "archived": set(),
+    }
+    if target_status == current_status:
+        return
+    if target_status not in allowed_transitions.get(current_status, set()):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot transition authored question from `{current_status}` to `{target_status}`.",
+        )
+
+
+def _promote_parent_statuses(question: Question, target_status: str) -> None:
+    if target_status not in {"reviewed", "published"}:
+        return
+
+    promotion_rank = {"draft": 0, "reviewed": 1, "published": 2}
+    concept = question.concept
+    topic = concept.topic
+
+    if promotion_rank.get(concept.status, 0) < promotion_rank[target_status]:
+        concept.status = target_status
+    if promotion_rank.get(topic.status, 0) < promotion_rank[target_status]:
+        topic.status = target_status
 
 
 def _get_or_create_topic(session: Session, payload: AuthoredQuestionBundleCreate) -> Topic:

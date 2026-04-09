@@ -12,6 +12,7 @@ Mode: Startup
 - The app now also supports minimal database-native authored question bundles.
 - The app now supports authored question submission for rubric-backed free-text responses.
 - The app now exposes first-class practice session APIs and supports multiple-choice plus oral-transcript authored responses.
+- The app now enforces an authored content lifecycle so draft questions must be reviewed and published before submission.
 - There is a working write path that accepts a student attempt, scores it, persists attempt/score/feedback, and updates module progress.
 - Local execution uses SQLite by default via `prep_dojo.db`.
 - Tests currently cover domain contracts, scoring, API behavior, and persistence.
@@ -128,6 +129,7 @@ Approach A is a good first slice, but it risks becoming a static library. Approa
 - Seeded reference catalog for valuation.
 - Database-native authored question bundle creation and retrieval.
 - Database-native authored question submission and persistence.
+- Authored lifecycle transition for review and publication.
 - Practice session creation and session-history retrieval.
 - Reference read endpoints.
 - Reference submit endpoints, including a generic question submit route.

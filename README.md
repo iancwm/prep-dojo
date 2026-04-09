@@ -19,6 +19,7 @@ What exists today:
 - first-class practice session create/list/get routes
 - a write path that accepts an attempt, scores it, persists it, and returns feedback
 - authored question bundle creation and retrieval routes backed by the database
+- authored status-transition workflow for `draft -> reviewed -> published`
 - authored question submission and scoring for rubric-backed free-text, oral-transcript, and multiple-choice answers
 - local SQLite storage by default
 - tests covering schema validation, scoring, API behavior, and persistence
@@ -86,6 +87,7 @@ Authored content:
 - `POST /api/v1/authored/questions`
 - `GET /api/v1/authored/questions`
 - `GET /api/v1/authored/questions/{question_id}`
+- `POST /api/v1/authored/questions/{question_id}/status`
 - `POST /api/v1/authored/questions/{question_id}/submit`
 
 Practice sessions:
@@ -121,12 +123,13 @@ Practice sessions:
 ## Known Constraints
 
 - The current scoring logic is still heuristic. It is driven by stored rubric data, but it is not a true semantic evaluator yet.
-- Authored content can now be stored in the database, but there is still no auth, review workflow, or admin UI around it.
+- Authored content can now be stored and moved through a review/publish workflow, but there is still no auth or admin UI around it.
 - The scoring path now supports stored free-text, oral-transcript, and multiple-choice responses, but the oral path is still heuristic text scoring rather than true spoken-answer evaluation.
+- Authored questions must be published before they can be submitted.
 
 ## Next Likely Steps
 
 - introduce Alembic and real migration management
 - add authored topic and concept management beyond question-bundle creation
-- add review and publishing workflows around authored content
+- add role-aware permissions around review and publishing actions
 - add richer session lifecycle controls such as completion, timing, and ordered question queues

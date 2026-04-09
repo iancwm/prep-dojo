@@ -2,7 +2,7 @@
 
 ## Overview
 
-Prep Dojo is currently a small FastAPI service with a typed domain layer, a SQLAlchemy persistence layer, a seeded finance interview reference catalog, a minimal authored question-bundle plus submit flow, and first-class practice session APIs.
+Prep Dojo is currently a small FastAPI service with a typed domain layer, a SQLAlchemy persistence layer, a seeded finance interview reference catalog, an authored question lifecycle, and first-class practice session APIs.
 
 The core backend path implemented today is:
 
@@ -24,6 +24,7 @@ Responsibilities:
 - expose reference read endpoints
 - expose practice-session create/list/get endpoints
 - expose authored create/list/get endpoints
+- expose authored lifecycle transition endpoints
 - expose authored submit endpoints
 - expose reference submit endpoints
 - translate request payloads into typed domain models
@@ -41,6 +42,8 @@ Responsibilities:
 Key contracts:
 - `AuthoredQuestionBundleCreate`
 - `AuthoredQuestionBundleRecord`
+- `ContentStatusTransitionRequest`
+- `ContentStatusTransitionResult`
 - `PracticeSessionCreate`
 - `PracticeSessionRecord`
 - `QuestionCreate`
@@ -94,6 +97,7 @@ Responsibilities:
 - persist the authored question, rubric, expected answer, and common mistakes
 - list and fetch authored question bundles by database id
 - support authored question retrieval for DB-native submit flows
+- enforce lifecycle transitions across draft, reviewed, published, and archived
 
 ### Scoring
 
@@ -156,9 +160,22 @@ Route:
 Flow:
 - FastAPI validates the request as `StudentAttemptCreate`
 - persistence layer resolves the authored question by UUID
+- submission is allowed only when the authored question and rubric are both published
 - scoring runs against the stored rubric and expected-answer records
 - attempt, score, feedback, and module progress are written to the DB
 - response returns `attempt_id`, `question_id`, `session_id`, `score`, and `feedback`
+
+### Authored Lifecycle Transition
+
+Route:
+- `POST /api/v1/authored/questions/{question_id}/status`
+
+Flow:
+- FastAPI validates the payload as `ContentStatusTransitionRequest`
+- authoring service validates the requested transition against the current lifecycle state
+- when moving to `reviewed`, review notes are required
+- question and rubric status are updated together
+- concept and topic statuses are promoted upward on review/publish so published content is distinguishable from draft parents
 
 ### Practice Session Read
 
@@ -220,6 +237,7 @@ Coverage today:
 - schema contract validation
 - seeded reference content validity
 - authored bundle creation and retrieval
+- authored lifecycle transition and publish enforcement
 - authored bundle submission and persistence
 - authored multiple-choice scoring
 - practice-session creation and history retrieval
@@ -238,10 +256,10 @@ Current passing command:
 - no migration layer yet
 - no async DB path
 - no auth or user identity beyond a seeded reference student
-- authored content exists, but there is no review workflow, editor UI, or ownership enforcement
+- no role-aware ownership enforcement around lifecycle actions
 - oral scoring is still transcript-as-text, not true speech or delivery evaluation
 - no UI integration
 
 ## Recommended Next Step
 
-The next major shift should be adding review/publishing workflows and richer session orchestration such as timing, completion, and queued question sets.
+The next major shift should be adding role-aware permissions and UI workflows around the lifecycle actions that now exist, plus richer session orchestration such as timing, completion, and queued question sets.

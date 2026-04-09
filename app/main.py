@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_session, init_db
 from app.schemas.domain import (
     AuthoredQuestionBundleCreate,
+    ContentStatusTransitionRequest,
     PracticeSessionCreate,
     StudentAttemptCreate,
     build_reference_assessment_modes,
@@ -22,6 +23,7 @@ from app.services.authoring import (
     create_authored_question_bundle,
     get_authored_question_bundle,
     list_authored_question_summaries,
+    transition_authored_question_status,
 )
 from app.services.practice_sessions import (
     create_practice_session_record,
@@ -111,6 +113,15 @@ def list_authored_questions(session: Session = Depends(get_session)) -> list[dic
 @app.get("/api/v1/authored/questions/{question_id}")
 def get_authored_question(question_id: str, session: Session = Depends(get_session)) -> dict:
     return get_authored_question_bundle(session, question_id).model_dump(mode="json")
+
+
+@app.post("/api/v1/authored/questions/{question_id}/status")
+def update_authored_question_status(
+    question_id: str,
+    payload: ContentStatusTransitionRequest,
+    session: Session = Depends(get_session),
+) -> dict:
+    return transition_authored_question_status(session, question_id, payload).model_dump(mode="json")
 
 
 @app.post("/api/v1/authored/questions/{question_id}/submit")
