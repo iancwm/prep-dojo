@@ -235,3 +235,129 @@ def test_create_authored_question_persists_bundle_artifacts(tmp_path: Path) -> N
         assert stored_rubric.question_id == stored_question.id
         assert stored_expected_answer is not None
         assert stored_expected_answer.question_id == stored_question.id
+
+
+def test_submit_authored_question_persists_attempt_score_and_progress(tmp_path: Path) -> None:
+    database_path = tmp_path / "prep-dojo-authored-submit.db"
+    engine = create_engine(f"sqlite:///{database_path}", future=True, connect_args={"check_same_thread": False})
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    Base.metadata.create_all(bind=engine)
+
+    def override_get_session():
+        session = TestingSessionLocal()
+        try:
+            yield session
+        finally:
+            session.close()
+
+    app.dependency_overrides[get_session] = override_get_session
+
+    try:
+        with TestClient(app) as client:
+            create_response = client.post(
+                "/api/v1/authored/questions",
+                json={
+                    "topic": {
+                        "slug": "accounting",
+                        "title": "Accounting",
+                        "description": "Accounting topics for interview prep.",
+                    },
+                    "concept": {
+                        "topic_slug": "accounting",
+                        "slug": "working-capital",
+                        "title": "Working Capital",
+                        "definition": "Operating current assets minus operating current liabilities.",
+                        "difficulty": "foundational",
+                    },
+                    "question": {
+                        "concept_slug": "working-capital",
+                        "assessment_mode": "short_answer",
+                        "difficulty": "foundational",
+                        "prompt": "Why does an increase in inventory reduce free cash flow?",
+                        "payload": {
+                            "question_type": "short_answer",
+                            "prompt": "Why does an increase in inventory reduce free cash flow?",
+                        },
+                    },
+                    "rubric": {
+                        "scoring_style": "rubric",
+                        "criteria": [
+                            {
+                                "name": "recall",
+                                "description": "Identifies inventory as a use of cash.",
+                                "weight": 0.5,
+                                "min_score": 0,
+                                "max_score": 4,
+                                "strong_response_fragments": ["use of cash", "inventory"],
+                            },
+                            {
+                                "name": "reasoning",
+                                "description": "Explains why working capital increases.",
+                                "weight": 0.5,
+                                "min_score": 0,
+                                "max_score": 4,
+                                "strong_response_fragments": ["working capital", "revenue"],
+                            },
+                        ],
+                        "thresholds": [
+                            {"band": "needs_review", "min_percentage": 0},
+                            {"band": "ready_for_retry", "min_percentage": 60},
+                            {"band": "interview_ready", "min_percentage": 80},
+                        ],
+                    },
+                    "expected_answer": {
+                        "answer_text": "Inventory build consumes cash before revenue is recognized.",
+                        "answer_outline": ["Inventory build uses cash", "Working capital rises"],
+                        "key_points": ["use of cash", "working capital"],
+                    },
+                },
+            )
+            question_id = create_response.json()["question"]["id"]
+
+            submit_response = client.post(
+                f"/api/v1/authored/questions/{question_id}/submit",
+                json={
+                    "question_id": question_id,
+                    "session_id": "authored-persisted-session-1",
+                    "response": {
+                        "response_type": "free_text",
+                        "content": (
+                            "Inventory is a use of cash because the company pays cash before the inventory becomes "
+                            "revenue. That increases working capital and reduces free cash flow."
+                        ),
+                    },
+                },
+            )
+    finally:
+        app.dependency_overrides.clear()
+
+    body = submit_response.json()
+    assert submit_response.status_code == 200
+    assert body["attempt_id"]
+
+    with Session(engine) as session:
+        stored_question = session.scalar(
+            select(Question).where(Question.id == uuid.UUID(question_id))
+        )
+        stored_attempt = session.scalar(select(StudentAttempt).where(StudentAttempt.question_id == stored_question.id))
+        stored_score = session.scalar(select(Score).where(Score.attempt_id == stored_attempt.id))
+        stored_feedback = session.scalar(select(Feedback).where(Feedback.attempt_id == stored_attempt.id))
+        stored_practice_session = session.scalar(
+            select(PracticeSession).where(PracticeSession.client_session_id == "authored-persisted-session-1")
+        )
+        stored_progress = session.scalar(select(ModuleProgress))
+
+        assert stored_question is not None
+        assert stored_question.external_id is None
+        assert stored_attempt is not None
+        assert stored_attempt.response_json["response_type"] == "free_text"
+        assert stored_score is not None
+        assert stored_score.overall_score > 0
+        assert stored_feedback is not None
+        assert stored_practice_session is not None
+        assert stored_practice_session.config_json["source"] == "authored-question"
+        assert stored_progress is not None
+        assert stored_progress.concept_mastery_json["working-capital"] in {
+            "ready_for_retry",
+            "interview_ready",
+        }

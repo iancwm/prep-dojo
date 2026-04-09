@@ -364,3 +364,93 @@ def test_authored_question_endpoints_create_and_fetch_bundle() -> None:
     assert any(item["id"] == question_id for item in summaries)
     assert fetched_body["question"]["id"] == question_id
     assert fetched_body["rubric"]["criteria"][0]["name"] == "reasoning"
+
+
+def test_authored_question_submit_endpoint_returns_score_and_feedback() -> None:
+    with TestClient(app) as client:
+        create_response = client.post(
+            "/api/v1/authored/questions",
+            json={
+                "topic": {
+                    "slug": "accounting",
+                    "title": "Accounting",
+                    "description": "Accounting topics for finance interviews.",
+                },
+                "concept": {
+                    "topic_slug": "accounting",
+                    "slug": "working-capital",
+                    "title": "Working Capital",
+                    "definition": "Operating current assets minus operating current liabilities.",
+                    "difficulty": "foundational",
+                },
+                "question": {
+                    "concept_slug": "working-capital",
+                    "assessment_mode": "short_answer",
+                    "difficulty": "foundational",
+                    "prompt": "Why does an increase in inventory reduce free cash flow?",
+                    "payload": {
+                        "question_type": "short_answer",
+                        "prompt": "Why does an increase in inventory reduce free cash flow?",
+                        "response_guidance": [
+                            "Explain the cash movement",
+                            "Tie it back to working capital",
+                        ],
+                    },
+                },
+                "rubric": {
+                    "scoring_style": "rubric",
+                    "criteria": [
+                        {
+                            "name": "recall",
+                            "description": "Identifies inventory as a use of cash.",
+                            "weight": 0.5,
+                            "min_score": 0,
+                            "max_score": 4,
+                            "strong_response_fragments": ["use of cash", "inventory"],
+                        },
+                        {
+                            "name": "reasoning",
+                            "description": "Explains the working capital consequence.",
+                            "weight": 0.5,
+                            "min_score": 0,
+                            "max_score": 4,
+                            "strong_response_fragments": ["working capital", "cash leaves before revenue"],
+                        },
+                    ],
+                    "thresholds": [
+                        {"band": "needs_review", "min_percentage": 0},
+                        {"band": "ready_for_retry", "min_percentage": 60},
+                        {"band": "interview_ready", "min_percentage": 80},
+                    ],
+                },
+                "expected_answer": {
+                    "answer_text": "Inventory increases reduce free cash flow because cash is tied up before revenue is recognized.",
+                    "answer_outline": ["Inventory build uses cash", "Working capital rises", "Free cash flow falls"],
+                    "key_points": ["inventory", "use of cash", "working capital"],
+                    "acceptable_variants": ["cash is tied up in inventory"],
+                },
+            },
+        )
+        question_id = create_response.json()["question"]["id"]
+
+        submit_response = client.post(
+            f"/api/v1/authored/questions/{question_id}/submit",
+            json={
+                "question_id": question_id,
+                "session_id": "authored-session-123",
+                "response": {
+                    "response_type": "free_text",
+                    "content": (
+                        "An increase in inventory is a use of cash because the company spends cash before that "
+                        "inventory becomes revenue. That increases working capital and reduces free cash flow."
+                    ),
+                },
+            },
+        )
+
+    body = submit_response.json()
+
+    assert submit_response.status_code == 200
+    assert body["question_id"] == question_id
+    assert body["score"]["overall_score"] > 0
+    assert body["feedback"]["next_step"]

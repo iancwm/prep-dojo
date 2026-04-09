@@ -18,6 +18,7 @@ What exists today:
 - generic reference question routes
 - a write path that accepts an attempt, scores it, persists it, and returns feedback
 - authored question bundle creation and retrieval routes backed by the database
+- authored question submission and scoring for rubric-backed free-text answers
 - local SQLite storage by default
 - tests covering schema validation, scoring, API behavior, and persistence
 
@@ -84,6 +85,7 @@ Authored content:
 - `POST /api/v1/authored/questions`
 - `GET /api/v1/authored/questions`
 - `GET /api/v1/authored/questions/{question_id}`
+- `POST /api/v1/authored/questions/{question_id}/submit`
 
 ## Project Layout
 
@@ -112,11 +114,11 @@ Authored content:
 
 - The current scoring logic is still heuristic. It is driven by stored rubric data, but it is not a true semantic evaluator yet.
 - Authored content can now be stored in the database, but there is still no auth, review workflow, or admin UI around it.
-- The generic scoring routes are still only wired to seeded reference questions, not arbitrary authored questions.
+- The scoring path currently supports rubric-backed free-text answers. Other response modes still need their own evaluators.
 
 ## Next Likely Steps
 
 - introduce Alembic and real migration management
-- extend scoring and practice-session orchestration to authored questions
 - add authored topic and concept management beyond question-bundle creation
-- add practice-session APIs that work beyond the reference module
+- add first-class practice-session APIs instead of using only per-question submit routes
+- add evaluators for multiple choice and oral recall authored questions

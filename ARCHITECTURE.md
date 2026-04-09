@@ -2,7 +2,7 @@
 
 ## Overview
 
-Prep Dojo is currently a small FastAPI service with a typed domain layer, a SQLAlchemy persistence layer, a seeded finance interview reference catalog, and a minimal authored question-bundle flow.
+Prep Dojo is currently a small FastAPI service with a typed domain layer, a SQLAlchemy persistence layer, a seeded finance interview reference catalog, and a minimal authored question-bundle plus submit flow.
 
 The core backend path implemented today is:
 
@@ -23,6 +23,7 @@ Responsibilities:
 - initialize the database at app startup
 - expose reference read endpoints
 - expose authored create/list/get endpoints
+- expose authored submit endpoints
 - expose reference submit endpoints
 - translate request payloads into typed domain models
 
@@ -89,6 +90,7 @@ Responsibilities:
 - ensure assessment modes exist in the database
 - persist the authored question, rubric, expected answer, and common mistakes
 - list and fetch authored question bundles by database id
+- support authored question retrieval for DB-native submit flows
 
 ### Scoring
 
@@ -131,6 +133,18 @@ Flow:
 - topic, concept, and assessment mode are created or reused
 - question, rubric, expected answer, and common mistakes are persisted together
 - response returns the stored authored bundle with database ids
+
+### Authored Question Submit
+
+Route:
+- `POST /api/v1/authored/questions/{question_id}/submit`
+
+Flow:
+- FastAPI validates the request as `StudentAttemptCreate`
+- persistence layer resolves the authored question by UUID
+- scoring runs against the stored rubric and expected-answer records
+- attempt, score, feedback, and module progress are written to the DB
+- response returns `attempt_id`, `question_id`, `session_id`, `score`, and `feedback`
 
 ### Generic Reference Submit
 
@@ -180,6 +194,7 @@ Coverage today:
 - schema contract validation
 - seeded reference content validity
 - authored bundle creation and retrieval
+- authored bundle submission and persistence
 - scoring behavior for both stored reference questions
 - endpoint behavior
 - persistence into a temporary SQLite database
@@ -196,9 +211,9 @@ Current passing command:
 - no async DB path
 - no auth or user identity beyond a seeded reference student
 - authored content exists, but there is no review workflow, editor UI, or ownership enforcement
-- no authored scoring or practice-session submission flow
+- scoring currently works for rubric-backed free-text answers only
 - no UI integration
 
 ## Recommended Next Step
 
-The next major shift should be extending scoring and practice-session orchestration from seeded reference content to database-native authored content with the same persistence contracts.
+The next major shift should be adding first-class practice-session orchestration and evaluator support for additional authored response modes beyond free-text.

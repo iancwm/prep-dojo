@@ -22,7 +22,7 @@ from app.services.authoring import (
     get_authored_question_bundle,
     list_authored_question_summaries,
 )
-from app.services.persistence import ensure_reference_catalog, persist_reference_attempt
+from app.services.persistence import ensure_reference_catalog, persist_authored_attempt, persist_reference_attempt
 
 
 @asynccontextmanager
@@ -90,6 +90,25 @@ def list_authored_questions(session: Session = Depends(get_session)) -> list[dic
 @app.get("/api/v1/authored/questions/{question_id}")
 def get_authored_question(question_id: str, session: Session = Depends(get_session)) -> dict:
     return get_authored_question_bundle(session, question_id).model_dump(mode="json")
+
+
+@app.post("/api/v1/authored/questions/{question_id}/submit")
+def submit_authored_question_attempt(
+    question_id: str,
+    attempt: StudentAttemptCreate,
+    session: Session = Depends(get_session),
+) -> dict:
+    if attempt.question_id != question_id:
+        raise HTTPException(status_code=400, detail="Path question id does not match payload question id.")
+
+    result = persist_authored_attempt(session, question_id, attempt)
+    return {
+        "attempt_id": result.attempt_id,
+        "question_id": result.question_id,
+        "session_id": result.session_id,
+        "score": result.score.model_dump(mode="json"),
+        "feedback": result.feedback.model_dump(mode="json"),
+    }
 
 
 @app.post("/api/v1/reference/modules/valuation-enterprise-value/submit")

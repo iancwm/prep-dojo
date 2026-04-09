@@ -43,7 +43,11 @@ def score_attempt_for_question(
     expected_answer: ExpectedAnswer,
     common_mistakes: list[CommonMistake],
 ) -> tuple[ScoreResult, FeedbackResult]:
-    if question.external_id != attempt.question_id:
+    valid_identifiers = {str(question.id)}
+    if question.external_id is not None:
+        valid_identifiers.add(question.external_id)
+
+    if attempt.question_id not in valid_identifiers:
         raise HTTPException(status_code=404, detail="Question id does not match stored question.")
 
     return score_attempt_from_contract(

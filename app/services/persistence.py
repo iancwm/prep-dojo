@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import uuid
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -60,15 +61,73 @@ def persist_reference_attempt(session: Session, attempt: StudentAttemptCreate) -
     if question_row is None:
         raise HTTPException(status_code=404, detail="Unknown reference question.")
 
-    score, feedback = score_attempt_for_question(
+    return _persist_attempt_for_question(
+        session=session,
         attempt=attempt,
-        question=question_row,
+        question_row=question_row,
         rubric=catalog.rubrics_by_question_id[question_row.id],
         expected_answer=catalog.expected_answers_by_question_id[question_row.id],
         common_mistakes=catalog.common_mistakes_by_question_id.get(question_row.id, []),
+        topic_id=catalog.topic.id,
+        concept_slug=catalog.concepts_by_id[question_row.concept_id].slug,
+        session_source="reference-module",
+    )
+
+
+def persist_authored_attempt(
+    session: Session,
+    question_id: str,
+    attempt: StudentAttemptCreate,
+) -> PersistedAttemptResult:
+    try:
+        parsed_id = uuid.UUID(question_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail="Unknown authored question.") from exc
+
+    question_row = session.scalar(select(Question).where(Question.id == parsed_id, Question.external_id.is_(None)))
+    if question_row is None:
+        raise HTTPException(status_code=404, detail="Unknown authored question.")
+
+    rubric = session.scalar(select(Rubric).where(Rubric.question_id == question_row.id))
+    expected_answer = session.scalar(select(ExpectedAnswer).where(ExpectedAnswer.question_id == question_row.id))
+    if rubric is None or expected_answer is None:
+        raise HTTPException(status_code=500, detail="Authored question is missing required scoring artifacts.")
+
+    common_mistakes = session.scalars(select(CommonMistake).where(CommonMistake.question_id == question_row.id)).all()
+    return _persist_attempt_for_question(
+        session=session,
+        attempt=attempt,
+        question_row=question_row,
+        rubric=rubric,
+        expected_answer=expected_answer,
+        common_mistakes=common_mistakes,
+        topic_id=question_row.concept.topic.id,
+        concept_slug=question_row.concept.slug,
+        session_source="authored-question",
+    )
+
+
+def _persist_attempt_for_question(
+    *,
+    session: Session,
+    attempt: StudentAttemptCreate,
+    question_row: Question,
+    rubric: Rubric,
+    expected_answer: ExpectedAnswer,
+    common_mistakes: list[CommonMistake],
+    topic_id,
+    concept_slug: str,
+    session_source: str,
+) -> PersistedAttemptResult:
+    score, feedback = score_attempt_for_question(
+        attempt=attempt,
+        question=question_row,
+        rubric=rubric,
+        expected_answer=expected_answer,
+        common_mistakes=common_mistakes,
     )
     user = _get_or_create_reference_student(session)
-    practice_session = _get_or_create_practice_session(session, user.id, attempt.session_id)
+    practice_session = _get_or_create_practice_session(session, user.id, attempt.session_id, session_source)
 
     attempt_row = StudentAttempt(
         student_id=user.id,
@@ -101,8 +160,8 @@ def persist_reference_attempt(session: Session, attempt: StudentAttemptCreate) -
     _upsert_module_progress(
         session=session,
         user_id=user.id,
-        topic_id=catalog.topic.id,
-        concept_slug=catalog.concepts_by_id[question_row.concept_id].slug,
+        topic_id=topic_id,
+        concept_slug=concept_slug,
         mastery_band=score.mastery_band.value,
     )
     session.commit()
@@ -247,7 +306,12 @@ def _get_or_create_reference_student(session: Session) -> User:
     return user
 
 
-def _get_or_create_practice_session(session: Session, user_id, client_session_id: str) -> PracticeSession:
+def _get_or_create_practice_session(
+    session: Session,
+    user_id,
+    client_session_id: str,
+    source: str,
+) -> PracticeSession:
     practice_session = session.scalar(
         select(PracticeSession).where(PracticeSession.client_session_id == client_session_id)
     )
@@ -255,7 +319,7 @@ def _get_or_create_practice_session(session: Session, user_id, client_session_id
         practice_session = PracticeSession(
             user_id=user_id,
             client_session_id=client_session_id,
-            config_json={"source": "reference-module"},
+            config_json={"source": source},
         )
         session.add(practice_session)
         session.flush()

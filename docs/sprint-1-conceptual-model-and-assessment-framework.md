@@ -28,6 +28,7 @@ Shipped against this spec:
 - local DB initialization
 - seeded valuation module and question catalog
 - authored question-bundle creation and retrieval
+- authored question submission for stored free-text prompts
 - rubric-backed scoring
 - persistence of attempts, scores, feedback, sessions, and progress
 
