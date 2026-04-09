@@ -1,4 +1,5 @@
 from app.core.enums import AssessmentModeType, MasteryBand, ScoringMethod
+from app.seeds.reference_data import get_reference_module, get_reference_progress_snapshot
 from app.schemas.domain import (
     FeedbackResult,
     QuestionCreate,
@@ -87,3 +88,23 @@ def test_score_and_feedback_contracts_match_assessment_framework() -> None:
     assert score.overall_score == 82
     assert score.criterion_scores[0].criterion_name == "clarity"
     assert feedback.next_step == "Retry the answer out loud in 30 seconds."
+
+
+def test_reference_module_exercises_finance_model_with_real_data() -> None:
+    module = get_reference_module()
+
+    assert module.topic.slug == "valuation"
+    assert module.concept.topic_slug == "valuation"
+    assert module.question_bundle.question.payload.question_type == "short_answer"
+    assert module.question_bundle.rubric.criteria[0].name == "recall"
+    assert module.question_bundle.sample_score.mastery_band == MasteryBand.READY_FOR_RETRY
+    assert "EV / EBITDA" in module.question_bundle.sample_feedback.next_step or "EV-based multiple" in " ".join(
+        module.question_bundle.sample_feedback.gaps + module.question_bundle.sample_feedback.remediation_hints
+    )
+
+
+def test_reference_progress_snapshot_matches_seeded_module() -> None:
+    snapshot = get_reference_progress_snapshot()
+
+    assert snapshot["topic_slug"] == "valuation"
+    assert snapshot["concept_slug"] == "enterprise-value-vs-equity-value"

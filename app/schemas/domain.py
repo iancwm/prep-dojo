@@ -221,6 +221,27 @@ class ModuleProgressSummary(BaseModel):
     concept_mastery: dict[str, MasteryBand] = Field(default_factory=dict)
 
 
+class ReferenceQuestionBundle(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: QuestionCreate
+    rubric: RubricDefinition
+    expected_answer: ExpectedAnswerCreate
+    common_mistakes: list[CommonMistakeCreate] = Field(default_factory=list)
+    sample_attempt: StudentAttemptCreate
+    sample_score: ScoreResult
+    sample_feedback: FeedbackResult
+
+
+class ReferenceModule(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    topic: TopicCreate
+    concept: ConceptCreate
+    assessment_mode: AssessmentModeDefinition
+    question_bundle: ReferenceQuestionBundle
+
+
 def build_reference_assessment_modes() -> list[AssessmentModeDefinition]:
     return [
         AssessmentModeDefinition(
@@ -254,4 +275,3 @@ def build_reference_assessment_modes() -> list[AssessmentModeDefinition]:
             timing_style=TimingStyle.LIVE,
         ),
     ]
-
