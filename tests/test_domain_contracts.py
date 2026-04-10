@@ -21,6 +21,8 @@ from app.schemas.domain import (
     StudentAttemptCreate,
 )
 
+MENTOR_HEADERS = {"X-User-Role": "academic"}
+
 
 def test_short_answer_question_payload_uses_discriminated_union() -> None:
     question = QuestionCreate.model_validate(
@@ -75,6 +77,72 @@ def test_rubric_definition_accepts_thresholds_and_criteria() -> None:
         failure_signals=["Defines EV without using it"],
         strong_response_fragments=["normalizes capital structure"],
     )
+
+
+def test_rubric_definition_rejects_duplicate_criterion_names() -> None:
+    try:
+        RubricDefinition.model_validate(
+            {
+                "scoring_style": "rubric",
+                "criteria": [
+                    {"name": "reasoning", "description": "First criterion.", "weight": 0.5, "min_score": 0, "max_score": 4},
+                    {"name": "Reasoning", "description": "Duplicate criterion.", "weight": 0.5, "min_score": 0, "max_score": 4},
+                ],
+                "thresholds": [
+                    {"band": "needs_review", "min_percentage": 0},
+                    {"band": "interview_ready", "min_percentage": 80},
+                ],
+            }
+        )
+    except Exception as exc:
+        assert "unique names" in str(exc)
+    else:
+        raise AssertionError("Expected duplicate criterion names to be rejected.")
+
+
+def test_rubric_definition_rejects_unsorted_or_duplicate_thresholds() -> None:
+    for payload in (
+        {
+            "scoring_style": "rubric",
+            "criteria": [{"name": "reasoning", "description": "Criterion.", "weight": 1.0, "min_score": 0, "max_score": 4}],
+            "thresholds": [
+                {"band": "interview_ready", "min_percentage": 80},
+                {"band": "needs_review", "min_percentage": 0},
+            ],
+        },
+        {
+            "scoring_style": "rubric",
+            "criteria": [{"name": "reasoning", "description": "Criterion.", "weight": 1.0, "min_score": 0, "max_score": 4}],
+            "thresholds": [
+                {"band": "needs_review", "min_percentage": 0},
+                {"band": "ready_for_retry", "min_percentage": 0},
+            ],
+        },
+    ):
+        try:
+            RubricDefinition.model_validate(payload)
+        except Exception as exc:
+            assert "threshold" in str(exc).lower()
+        else:
+            raise AssertionError("Expected invalid thresholds to be rejected.")
+
+
+def test_rubric_definition_requires_zero_floor_threshold() -> None:
+    try:
+        RubricDefinition.model_validate(
+            {
+                "scoring_style": "rubric",
+                "criteria": [{"name": "reasoning", "description": "Criterion.", "weight": 1.0, "min_score": 0, "max_score": 4}],
+                "thresholds": [
+                    {"band": "ready_for_retry", "min_percentage": 50},
+                    {"band": "interview_ready", "min_percentage": 80},
+                ],
+            }
+        )
+    except Exception as exc:
+        assert "start at 0" in str(exc)
+    else:
+        raise AssertionError("Expected missing zero-floor threshold to be rejected.")
 
 
 def test_authored_question_bundle_contract_accepts_topic_concept_and_scoring_artifacts() -> None:
@@ -300,6 +368,7 @@ def test_authored_question_endpoints_create_and_fetch_bundle() -> None:
     with TestClient(app) as client:
         create_response = client.post(
             "/api/v1/authored/questions",
+            headers=MENTOR_HEADERS,
             json={
                 "topic": {
                     "slug": "accounting",
@@ -372,11 +441,11 @@ def test_authored_question_endpoints_create_and_fetch_bundle() -> None:
         created_body = create_response.json()
         question_id = created_body["question"]["id"]
 
-        list_response = client.get("/api/v1/authored/questions")
+        list_response = client.get("/api/v1/authored/questions", headers=MENTOR_HEADERS)
         assert list_response.status_code == 200
         summaries = list_response.json()
 
-        fetch_response = client.get(f"/api/v1/authored/questions/{question_id}")
+        fetch_response = client.get(f"/api/v1/authored/questions/{question_id}", headers=MENTOR_HEADERS)
         assert fetch_response.status_code == 200
         fetched_body = fetch_response.json()
 
@@ -392,6 +461,7 @@ def test_authored_question_status_flow_requires_review_then_publish() -> None:
     with TestClient(app) as client:
         create_response = client.post(
             "/api/v1/authored/questions",
+            headers=MENTOR_HEADERS,
             json={
                 "topic": {
                     "slug": "accounting",
@@ -472,13 +542,15 @@ def test_authored_question_status_flow_requires_review_then_publish() -> None:
 
         review_response = client.post(
             f"/api/v1/authored/questions/{question_id}/status",
+            headers=MENTOR_HEADERS,
             json={"status": "reviewed", "review_notes": "Rubric and prompt are realistic enough to publish."},
         )
         publish_response = client.post(
             f"/api/v1/authored/questions/{question_id}/status",
+            headers=MENTOR_HEADERS,
             json={"status": "published"},
         )
-        fetch_response = client.get(f"/api/v1/authored/questions/{question_id}")
+        fetch_response = client.get(f"/api/v1/authored/questions/{question_id}", headers=MENTOR_HEADERS)
 
     blocked_body = blocked_submit_response.json()
     reviewed_body = review_response.json()
@@ -501,6 +573,7 @@ def test_authored_question_submit_endpoint_returns_score_and_feedback() -> None:
     with TestClient(app) as client:
         create_response = client.post(
             "/api/v1/authored/questions",
+            headers=MENTOR_HEADERS,
             json={
                 "topic": {
                     "slug": "accounting",
@@ -565,10 +638,12 @@ def test_authored_question_submit_endpoint_returns_score_and_feedback() -> None:
         question_id = create_response.json()["question"]["id"]
         client.post(
             f"/api/v1/authored/questions/{question_id}/status",
+            headers=MENTOR_HEADERS,
             json={"status": "reviewed", "review_notes": "Ready for publication."},
         )
         client.post(
             f"/api/v1/authored/questions/{question_id}/status",
+            headers=MENTOR_HEADERS,
             json={"status": "published"},
         )
 
@@ -599,6 +674,7 @@ def test_authored_multiple_choice_submit_returns_automatic_score() -> None:
     with TestClient(app) as client:
         create_response = client.post(
             "/api/v1/authored/questions",
+            headers=MENTOR_HEADERS,
             json={
                 "topic": {
                     "slug": "valuation",
@@ -654,10 +730,12 @@ def test_authored_multiple_choice_submit_returns_automatic_score() -> None:
         question_id = create_response.json()["question"]["id"]
         client.post(
             f"/api/v1/authored/questions/{question_id}/status",
+            headers=MENTOR_HEADERS,
             json={"status": "reviewed", "review_notes": "Answer key is accurate."},
         )
         client.post(
             f"/api/v1/authored/questions/{question_id}/status",
+            headers=MENTOR_HEADERS,
             json={"status": "published"},
         )
 

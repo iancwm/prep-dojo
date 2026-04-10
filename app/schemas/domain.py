@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.core.enums import (
     AssessmentModeType,
@@ -61,6 +61,12 @@ class RubricCriterion(BaseModel):
     failure_signals: list[str] = Field(default_factory=list)
     strong_response_fragments: list[str] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _validate_score_range(self) -> "RubricCriterion":
+        if self.min_score > self.max_score:
+            raise ValueError("Criterion min_score cannot exceed max_score.")
+        return self
+
 
 class MasteryThreshold(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -76,6 +82,26 @@ class RubricDefinition(BaseModel):
     scoring_style: ScoringStyle
     thresholds: list[MasteryThreshold]
     review_notes: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_rubric_quality(self) -> "RubricDefinition":
+        criterion_names = [criterion.name.strip().lower() for criterion in self.criteria]
+        if len(criterion_names) != len(set(criterion_names)):
+            raise ValueError("Rubric criteria must have unique names.")
+
+        threshold_bands = [threshold.band for threshold in self.thresholds]
+        if len(threshold_bands) != len(set(threshold_bands)):
+            raise ValueError("Rubric thresholds must use unique mastery bands.")
+
+        threshold_minimums = [threshold.min_percentage for threshold in self.thresholds]
+        if threshold_minimums != sorted(threshold_minimums):
+            raise ValueError("Rubric thresholds must be sorted by min_percentage.")
+        if len(threshold_minimums) != len(set(threshold_minimums)):
+            raise ValueError("Rubric thresholds must have unique min_percentage values.")
+        if threshold_minimums and threshold_minimums[0] != 0:
+            raise ValueError("Rubric thresholds must start at 0 percent.")
+
+        return self
 
 
 class MCQOption(BaseModel):
@@ -156,6 +182,15 @@ class TopicRecord(TopicCreate):
     id: str
 
 
+class TopicUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    title: str
+    description: str
+    order_index: int = 0
+    status: ContentStatus = ContentStatus.DRAFT
+
+
 class ConceptRecord(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -167,6 +202,51 @@ class ConceptRecord(BaseModel):
     difficulty: DifficultyLevel
     prerequisites: list[str] = Field(default_factory=list)
     status: ContentStatus
+
+
+class ConceptUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    topic_slug: str
+    title: str
+    definition: str
+    difficulty: DifficultyLevel
+    prerequisites: list[str] = Field(default_factory=list)
+    status: ContentStatus = ContentStatus.DRAFT
+
+
+class TopicArchiveResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    topic_slug: str
+    previous_status: ContentStatus
+    current_status: ContentStatus
+    archived_concept_count: int = 0
+    archived_question_count: int = 0
+
+
+class ConceptArchiveResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    concept_slug: str
+    previous_status: ContentStatus
+    current_status: ContentStatus
+    archived_question_count: int = 0
+
+
+class TopicListFilters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: ContentStatus | None = None
+    include_archived: bool = False
+
+
+class ConceptListFilters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    topic_slug: str | None = None
+    status: ContentStatus | None = None
+    include_archived: bool = False
 
 
 class QuestionRecord(BaseModel):
@@ -185,12 +265,32 @@ class QuestionRecord(BaseModel):
     version: int
 
 
+class QuestionUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    concept_slug: str
+    assessment_mode: AssessmentModeType
+    difficulty: DifficultyLevel
+    prompt: str
+    context: str | None = None
+    payload: QuestionPayload
+
+
 class AuthoredQuestionBundleCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     topic: TopicCreate
     concept: ConceptCreate
     question: QuestionCreate
+    rubric: RubricDefinition
+    expected_answer: ExpectedAnswerCreate
+    common_mistakes: list[CommonMistakeCreate] = Field(default_factory=list)
+
+
+class AuthoredQuestionBundleUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    question: QuestionUpdate
     rubric: RubricDefinition
     expected_answer: ExpectedAnswerCreate
     common_mistakes: list[CommonMistakeCreate] = Field(default_factory=list)
@@ -235,6 +335,14 @@ class AuthoredQuestionSummary(BaseModel):
     status: ContentStatus
     prompt: str
     version: int
+
+
+class AuthoredQuestionListFilters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: ContentStatus | None = None
+    topic_slug: str | None = None
+    concept_slug: str | None = None
 
 
 class MultipleChoiceResponse(BaseModel):
@@ -315,6 +423,44 @@ class PracticeSessionCreate(BaseModel):
 
     session_id: str | None = None
     source: str = "practice-session"
+    question_queue: list[str] = Field(default_factory=list)
+
+    @field_validator("question_queue")
+    @classmethod
+    def _validate_question_queue(cls, value: list[str]) -> list[str]:
+        if len(value) != len(dict.fromkeys(value)):
+            raise ValueError("question_queue must contain unique question ids.")
+        return value
+
+
+PracticeSessionStatus = Literal["created", "in_progress", "completed"]
+
+
+class PracticeSessionListFilters(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: PracticeSessionStatus | None = None
+    source: str | None = None
+    started_after: datetime | None = None
+    started_before: datetime | None = None
+    current_question_id: str | None = None
+    has_remaining: bool | None = None
+
+    @model_validator(mode="after")
+    def _validate_time_window(self) -> "PracticeSessionListFilters":
+        if (
+            self.started_after is not None
+            and self.started_before is not None
+            and self.started_after > self.started_before
+        ):
+            raise ValueError("started_after cannot be later than started_before.")
+        return self
+
+
+class PracticeSessionTransitionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: PracticeSessionStatus
 
 
 class PracticeSessionSummary(BaseModel):
@@ -322,6 +468,12 @@ class PracticeSessionSummary(BaseModel):
 
     session_id: str
     source: str
+    status: PracticeSessionStatus
+    question_queue: list[str] = Field(default_factory=list)
+    queued_question_count: int = 0
+    completed_question_count: int = 0
+    remaining_question_count: int = 0
+    current_question_id: str | None = None
     started_at: datetime
     completed_at: datetime | None = None
     attempt_count: int = 0
@@ -346,6 +498,12 @@ class PracticeSessionRecord(BaseModel):
     session_id: str
     user_id: str
     source: str
+    status: PracticeSessionStatus
+    question_queue: list[str] = Field(default_factory=list)
+    queued_question_count: int = 0
+    completed_question_count: int = 0
+    remaining_question_count: int = 0
+    current_question_id: str | None = None
     started_at: datetime
     completed_at: datetime | None = None
     attempts: list[PracticeSessionAttemptSummary] = Field(default_factory=list)

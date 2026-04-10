@@ -23,6 +23,9 @@ config:
 test:
   APP_CONFIG_PATH={{config_path}} ./.venv/bin/pytest tests
 
+migrate:
+  APP_CONFIG_PATH={{config_path}} ./.venv/bin/python -m app.cli migrate-head
+
 up:
   #!/usr/bin/env bash
   set -euo pipefail
@@ -80,4 +83,5 @@ cloud-readiness:
   echo "Deployment profile: config/deploy.toml"
   echo "Health endpoint: /healthz"
   echo "Port source: ${PORT:-8000}"
-  echo "Next step: replace startup create_all with migrations before production rollout."
+  echo "Migration command: just migrate"
+  echo "Production hint: set DATABASE_INIT_MODE=migrations before rollout."

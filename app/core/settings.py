@@ -30,6 +30,7 @@ class ServerSettings:
 @dataclass(frozen=True)
 class DatabaseSettings:
     url: str
+    init_mode: str
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,7 @@ def get_settings() -> Settings:
         ),
         database=DatabaseSettings(
             url=_env_or_default("DATABASE_URL", database_config["url"]),
+            init_mode=_env_or_default("DATABASE_INIT_MODE", database_config.get("init_mode", "metadata")),
         ),
         practice=PracticeSettings(
             reference_student_email=_env_or_default(

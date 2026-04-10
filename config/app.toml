@@ -12,6 +12,7 @@ log_level = "info"
 
 [database]
 url = "sqlite:///./prep_dojo.db"
+init_mode = "metadata"
 
 [practice]
 reference_student_email = "reference-student@prep-dojo.local"

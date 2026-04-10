@@ -1,15 +1,28 @@
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, status
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
+from app.core.auth import require_mentor_like_role
 from app.core.settings import get_settings
 from app.db.session import get_session, init_db
 from app.schemas.domain import (
+    AuthoredQuestionListFilters,
     AuthoredQuestionBundleCreate,
+    AuthoredQuestionBundleUpdate,
+    ConceptListFilters,
+    ConceptCreate,
+    ConceptUpdate,
     ContentStatusTransitionRequest,
+    PracticeSessionListFilters,
     PracticeSessionCreate,
+    PracticeSessionStatus,
+    PracticeSessionTransitionRequest,
     StudentAttemptCreate,
+    TopicListFilters,
+    TopicCreate,
+    TopicUpdate,
     build_reference_assessment_modes,
 )
 from app.seeds.reference_data import (
@@ -21,15 +34,26 @@ from app.seeds.reference_data import (
     get_reference_progress_snapshot,
 )
 from app.services.authoring import (
+    archive_concept,
+    archive_topic,
+    create_concept,
     create_authored_question_bundle,
+    create_topic,
     get_authored_question_bundle,
+    list_concepts,
     list_authored_question_summaries,
+    list_topics,
     transition_authored_question_status,
+    update_authored_question_bundle,
+    update_concept,
+    update_topic,
 )
 from app.services.practice_sessions import (
+    complete_practice_session,
     create_practice_session_record,
     get_practice_session_record,
     list_practice_session_summaries,
+    start_practice_session,
 )
 from app.services.persistence import ensure_reference_catalog, persist_authored_attempt, persist_reference_attempt
 
@@ -91,8 +115,26 @@ def create_practice_session(payload: PracticeSessionCreate, session: Session = D
 
 
 @app.get("/api/v1/practice-sessions")
-def list_practice_sessions(session: Session = Depends(get_session)) -> list[dict]:
-    return [item.model_dump(mode="json") for item in list_practice_session_summaries(session)]
+def list_practice_sessions(
+    status: PracticeSessionStatus | None = None,
+    source: str | None = None,
+    started_after: str | None = None,
+    started_before: str | None = None,
+    current_question_id: str | None = None,
+    has_remaining: bool | None = None,
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    filters = PracticeSessionListFilters.model_validate(
+        {
+            "status": status,
+            "source": source,
+            "started_after": started_after,
+            "started_before": started_before,
+            "current_question_id": current_question_id,
+            "has_remaining": has_remaining,
+        }
+    )
+    return [item.model_dump(mode="json") for item in list_practice_session_summaries(session, filters=filters)]
 
 
 @app.get("/api/v1/practice-sessions/{session_id}")
@@ -100,28 +142,167 @@ def get_practice_session(session_id: str, session: Session = Depends(get_session
     return get_practice_session_record(session, session_id).model_dump(mode="json")
 
 
+@app.post("/api/v1/practice-sessions/{session_id}/start")
+def start_practice_session_route(
+    session_id: str,
+    payload: PracticeSessionTransitionRequest,
+    session: Session = Depends(get_session),
+) -> dict:
+    if payload.status != "in_progress":
+        raise HTTPException(status_code=400, detail="Start endpoint only accepts `in_progress` status.")
+    return start_practice_session(session, session_id).model_dump(mode="json")
+
+
+@app.post("/api/v1/practice-sessions/{session_id}/complete")
+def complete_practice_session_route(
+    session_id: str,
+    payload: PracticeSessionTransitionRequest,
+    session: Session = Depends(get_session),
+) -> dict:
+    if payload.status != "completed":
+        raise HTTPException(status_code=400, detail="Complete endpoint only accepts `completed` status.")
+    return complete_practice_session(session, session_id).model_dump(mode="json")
+
+
 @app.post("/api/v1/authored/questions", status_code=status.HTTP_201_CREATED)
 def create_authored_question(
     payload: AuthoredQuestionBundleCreate,
+    _: None = Depends(require_mentor_like_role),
     session: Session = Depends(get_session),
 ) -> dict:
     return create_authored_question_bundle(session, payload).model_dump(mode="json")
 
 
+@app.post("/api/v1/authored/topics", status_code=status.HTTP_201_CREATED)
+def create_authored_topic(
+    payload: TopicCreate,
+    _: None = Depends(require_mentor_like_role),
+    session: Session = Depends(get_session),
+) -> dict:
+    return create_topic(session, payload).model_dump(mode="json")
+
+
+@app.get("/api/v1/authored/topics")
+def list_authored_topics(
+    status: str | None = None,
+    include_archived: bool = False,
+    _: None = Depends(require_mentor_like_role),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    filters = TopicListFilters.model_validate({"status": status, "include_archived": include_archived})
+    return [item.model_dump(mode="json") for item in list_topics(session, filters=filters)]
+
+
+@app.put("/api/v1/authored/topics/{topic_slug}")
+def update_authored_topic(
+    topic_slug: str,
+    payload: TopicUpdate,
+    _: None = Depends(require_mentor_like_role),
+    session: Session = Depends(get_session),
+) -> dict:
+    return update_topic(session, topic_slug, payload).model_dump(mode="json")
+
+
+@app.post("/api/v1/authored/topics/{topic_slug}/archive")
+def archive_authored_topic(
+    topic_slug: str,
+    _: None = Depends(require_mentor_like_role),
+    session: Session = Depends(get_session),
+) -> dict:
+    return archive_topic(session, topic_slug).model_dump(mode="json")
+
+
+@app.post("/api/v1/authored/concepts", status_code=status.HTTP_201_CREATED)
+def create_authored_concept(
+    payload: ConceptCreate,
+    _: None = Depends(require_mentor_like_role),
+    session: Session = Depends(get_session),
+) -> dict:
+    return create_concept(session, payload).model_dump(mode="json")
+
+
+@app.get("/api/v1/authored/concepts")
+def list_authored_concepts(
+    topic_slug: str | None = None,
+    status: str | None = None,
+    include_archived: bool = False,
+    _: None = Depends(require_mentor_like_role),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    filters = ConceptListFilters.model_validate(
+        {
+            "topic_slug": topic_slug,
+            "status": status,
+            "include_archived": include_archived,
+        }
+    )
+    return [item.model_dump(mode="json") for item in list_concepts(session, filters=filters)]
+
+
+@app.put("/api/v1/authored/concepts/{concept_slug}")
+def update_authored_concept(
+    concept_slug: str,
+    payload: ConceptUpdate,
+    _: None = Depends(require_mentor_like_role),
+    session: Session = Depends(get_session),
+) -> dict:
+    return update_concept(session, concept_slug, payload).model_dump(mode="json")
+
+
+@app.post("/api/v1/authored/concepts/{concept_slug}/archive")
+def archive_authored_concept(
+    concept_slug: str,
+    _: None = Depends(require_mentor_like_role),
+    session: Session = Depends(get_session),
+) -> dict:
+    return archive_concept(session, concept_slug).model_dump(mode="json")
+
+
 @app.get("/api/v1/authored/questions")
-def list_authored_questions(session: Session = Depends(get_session)) -> list[dict]:
-    return [item.model_dump(mode="json") for item in list_authored_question_summaries(session)]
+def list_authored_questions(
+    status_filter: str | None = None,
+    topic_slug: str | None = None,
+    concept_slug: str | None = None,
+    _: None = Depends(require_mentor_like_role),
+    session: Session = Depends(get_session),
+) -> list[dict]:
+    try:
+        filters = AuthoredQuestionListFilters.model_validate(
+            {
+                "status": status_filter,
+                "topic_slug": topic_slug,
+                "concept_slug": concept_slug,
+            }
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=exc.errors()) from exc
+    return [item.model_dump(mode="json") for item in list_authored_question_summaries(session, filters=filters)]
 
 
 @app.get("/api/v1/authored/questions/{question_id}")
-def get_authored_question(question_id: str, session: Session = Depends(get_session)) -> dict:
+def get_authored_question(
+    question_id: str,
+    _: None = Depends(require_mentor_like_role),
+    session: Session = Depends(get_session),
+) -> dict:
     return get_authored_question_bundle(session, question_id).model_dump(mode="json")
+
+
+@app.put("/api/v1/authored/questions/{question_id}")
+def update_authored_question(
+    question_id: str,
+    payload: AuthoredQuestionBundleUpdate,
+    _: None = Depends(require_mentor_like_role),
+    session: Session = Depends(get_session),
+) -> dict:
+    return update_authored_question_bundle(session, question_id, payload).model_dump(mode="json")
 
 
 @app.post("/api/v1/authored/questions/{question_id}/status")
 def update_authored_question_status(
     question_id: str,
     payload: ContentStatusTransitionRequest,
+    _: None = Depends(require_mentor_like_role),
     session: Session = Depends(get_session),
 ) -> dict:
     return transition_authored_question_status(session, question_id, payload).model_dump(mode="json")

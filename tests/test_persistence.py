@@ -26,6 +26,8 @@ from app.main import app
 from app.seeds.reference_data import SECONDARY_REFERENCE_QUESTION_ID
 from app.services.scoring import REFERENCE_QUESTION_ID
 
+MENTOR_HEADERS = {"X-User-Role": "academic"}
+
 
 def test_submit_reference_attempt_persists_attempt_score_and_feedback(tmp_path: Path) -> None:
     database_path = tmp_path / "prep-dojo-test.db"
@@ -159,6 +161,7 @@ def test_create_authored_question_persists_bundle_artifacts(tmp_path: Path) -> N
         with TestClient(app) as client:
             response = client.post(
                 "/api/v1/authored/questions",
+                headers=MENTOR_HEADERS,
                 json={
                     "topic": {
                         "slug": "accounting",
@@ -265,6 +268,7 @@ def test_authored_question_status_transition_persists_review_and_publish_state(t
         with TestClient(app) as client:
             create_response = client.post(
                 "/api/v1/authored/questions",
+                headers=MENTOR_HEADERS,
                 json={
                     "topic": {
                         "slug": "accounting",
@@ -315,10 +319,12 @@ def test_authored_question_status_transition_persists_review_and_publish_state(t
 
             review_response = client.post(
                 f"/api/v1/authored/questions/{question_id}/status",
+                headers=MENTOR_HEADERS,
                 json={"status": "reviewed", "review_notes": "Reviewed and ready for release."},
             )
             publish_response = client.post(
                 f"/api/v1/authored/questions/{question_id}/status",
+                headers=MENTOR_HEADERS,
                 json={"status": "published"},
             )
     finally:
@@ -364,6 +370,7 @@ def test_submit_authored_question_persists_attempt_score_and_progress(tmp_path: 
         with TestClient(app) as client:
             create_response = client.post(
                 "/api/v1/authored/questions",
+                headers=MENTOR_HEADERS,
                 json={
                     "topic": {
                         "slug": "accounting",
@@ -423,10 +430,12 @@ def test_submit_authored_question_persists_attempt_score_and_progress(tmp_path: 
             question_id = create_response.json()["question"]["id"]
             client.post(
                 f"/api/v1/authored/questions/{question_id}/status",
+                headers=MENTOR_HEADERS,
                 json={"status": "reviewed", "review_notes": "Ready to publish."},
             )
             client.post(
                 f"/api/v1/authored/questions/{question_id}/status",
+                headers=MENTOR_HEADERS,
                 json={"status": "published"},
             )
 
@@ -509,6 +518,7 @@ def test_practice_session_endpoints_show_attempt_history(tmp_path: Path) -> None
 
             create_question_response = client.post(
                 "/api/v1/authored/questions",
+                headers=MENTOR_HEADERS,
                 json={
                     "topic": {
                         "slug": "accounting",
@@ -558,10 +568,12 @@ def test_practice_session_endpoints_show_attempt_history(tmp_path: Path) -> None
             question_id = create_question_response.json()["question"]["id"]
             client.post(
                 f"/api/v1/authored/questions/{question_id}/status",
+                headers=MENTOR_HEADERS,
                 json={"status": "reviewed", "review_notes": "Approved for practice use."},
             )
             client.post(
                 f"/api/v1/authored/questions/{question_id}/status",
+                headers=MENTOR_HEADERS,
                 json={"status": "published"},
             )
 

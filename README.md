@@ -16,11 +16,21 @@ This is not yet a full product. It is a validated backend skeleton with a workin
 What exists today:
 - two seeded reference questions for the `Enterprise Value vs Equity Value` concept
 - generic reference question routes
-- first-class practice session create/list/get routes
+- first-class practice session create/list/get routes, with list filtering by `status`, `source`, `started_after`, `started_before`, `current_question_id`, and `has_remaining`
+- explicit practice-session start/complete routes
 - a write path that accepts an attempt, scores it, persists it, and returns feedback
 - authored question bundle creation and retrieval routes backed by the database
+- authored topic and concept management routes for content operations
+- lightweight role-claim guards on authored routes via `X-User-Role`
 - authored status-transition workflow for `draft -> reviewed -> published`
+- authored question editing with version bumps for question and rubric payloads
+- authored question list filtering by status, topic, and concept
+- authored topic/concept list filters with archived content hidden by default and opt-in visibility
+- rubric contracts that enforce unique criterion names, sorted and unique thresholds, and a 0-percent floor
 - authored question submission and scoring for rubric-backed free-text, oral-transcript, and multiple-choice answers
+- publish-readiness validation for rubric and expected-answer completeness
+- mode-specific publish validation for multiple-choice and oral-recall payloads
+- Alembic migrations with a migration-first runtime mode for non-local environments
 - explicit attempt submission and scoring flow, with stored scores carrying rubric lineage and attempts ending in `complete`
 - centralized runtime configuration in `config/` with env overrides
 - `justfile` automation for local bootstrap, startup, testing, and teardown
@@ -28,11 +38,10 @@ What exists today:
 - tests covering schema validation, scoring, API behavior, and persistence
 
 What does not exist yet:
-- authentication and role-based access
-- Alembic migrations
+- full login/session-based authentication and identity-provider integration
 - production-grade database configuration
 - student-facing UI
-- mentor review workflows beyond minimal content creation
+- mentor/admin UI for review workflows and content operations
 
 ## Quick Start
 
@@ -64,17 +73,27 @@ Run tests:
 just test
 ```
 
+Run migrations:
+
+```bash
+just migrate
+```
+
 ## Runtime Behavior
 
-On startup, the app initializes the database schema using SQLAlchemy metadata.
+On startup, the app initializes the database schema only when `DATABASE_INIT_MODE=metadata`.
+
+Use `DATABASE_INIT_MODE=migrations` for migration-first environments and run:
+- `just migrate`
 
 Default database:
 - `sqlite:///./prep_dojo.db`
 
 Override with:
 - `DATABASE_URL`
+- `DATABASE_INIT_MODE`
 - `APP_CONFIG_PATH`
-- env vars from [.env.example](/Users/iancwm/git/prep-dojo/.env.example)
+- env vars from [.env.example](/home/iancwm/git/prep-dojo/.env.example)
 
 The local database file is ignored in git.
 
@@ -88,6 +107,7 @@ Main local commands:
 - `just restart`
 - `just status`
 - `just logs`
+- `just migrate`
 - `just test`
 - `just teardown-local`
 - `just cloud-readiness`
@@ -109,16 +129,25 @@ Reference scoring:
 - `POST /api/v1/reference/questions/{question_external_id}/submit`
 
 Authored content:
+- `POST /api/v1/authored/topics`
+- `GET /api/v1/authored/topics` with `status` and `include_archived` filters
+- `PUT /api/v1/authored/topics/{topic_slug}`
+- `POST /api/v1/authored/concepts`
+- `GET /api/v1/authored/concepts` with `topic_slug`, `status`, and `include_archived` filters
+- `PUT /api/v1/authored/concepts/{concept_slug}`
 - `POST /api/v1/authored/questions`
 - `GET /api/v1/authored/questions`
 - `GET /api/v1/authored/questions/{question_id}`
+- `PUT /api/v1/authored/questions/{question_id}`
 - `POST /api/v1/authored/questions/{question_id}/status`
 - `POST /api/v1/authored/questions/{question_id}/submit`
 
 Practice sessions:
 - `POST /api/v1/practice-sessions`
-- `GET /api/v1/practice-sessions`
+- `GET /api/v1/practice-sessions` with `status`, `source`, `started_after`, `started_before`, `current_question_id`, and `has_remaining` filters; invalid status returns `422`
 - `GET /api/v1/practice-sessions/{session_id}`
+- `POST /api/v1/practice-sessions/{session_id}/start`
+- `POST /api/v1/practice-sessions/{session_id}/complete`
 
 ## Project Layout
 
@@ -135,7 +164,11 @@ Practice sessions:
 - `app/db/models.py`
   SQLAlchemy models.
 - `app/db/session.py`
-  Engine and session setup.
+  Engine, session setup, and schema-init mode handling.
+- `alembic/`
+  Migration environment and version history.
+- `alembic.ini`
+  Alembic configuration entrypoint.
 - `app/seeds/reference_data.py`
   Seeded valuation module and reference questions.
 - `app/services/scoring.py`
@@ -156,16 +189,67 @@ Practice sessions:
 ## Known Constraints
 
 - The current scoring logic is still heuristic. It is driven by stored rubric data, but it is not a true semantic evaluator yet.
-- Authored content can now be stored and moved through a review/publish workflow, but there is still no auth or admin UI around it.
+- Authored content is protected by lightweight role-claim guards, but there is still no full login/session-based auth or admin UI around it.
 - The scoring path now supports stored free-text, oral-transcript, and multiple-choice responses, but the oral path is still heuristic text scoring rather than true spoken-answer evaluation.
 - Authored questions must be published before they can be submitted.
+- Published or archived authored questions cannot be edited; editing a reviewed question sends it back to draft for re-review.
 - The attempt lifecycle is explicit for synchronous scoring, but the reserved `created`, `scored`, and `needs_followup` states are not yet used by a manual-review or async-scoring flow.
-- Production deployment is still pre-migration and pre-auth; see [docs/cloud-deployment-readiness.md](/Users/iancwm/git/prep-dojo/docs/cloud-deployment-readiness.md).
+- Production deployment is still pre-release and lacks a cloud entrypoint/manifest; see [docs/cloud-deployment-readiness.md](/home/iancwm/git/prep-dojo/docs/cloud-deployment-readiness.md).
 
 ## Next Likely Steps
 
-- introduce Alembic and real migration management
-- add authored topic and concept management beyond question-bundle creation
-- add role-aware permissions around review and publishing actions
-- add richer session lifecycle controls such as completion, timing, and ordered question queues
-- add a production deployment entrypoint and platform manifest after migrations exist
+- add a student-facing UI
+- add fuller admin/review UI around authored workflows
+- add richer session lifecycle controls such as timing and async/manual-review handoff
+- add a production deployment entrypoint and platform manifest
+
+## Sprint 2 Kickoff
+
+Active sprint focus:
+- pilot readiness and content operations hardening
+- migration-first persistence
+- role-aware authored workflows
+- richer session lifecycle semantics
+
+## Sprint 2 Pilot Smoke-Test
+
+Use this as the local pilot simulation sequence before an internal rehearsal.
+
+Prereqs:
+- `APP_CONFIG_PATH=config/app.toml`
+- local API base URL: `http://127.0.0.1:8000`
+- mentor-like role header for authored routes: `X-User-Role: academic`
+- student requests omit `X-User-Role` entirely
+
+1. Bootstrap the local stack:
+   - `just bootstrap`
+   - `just migrate`
+   - `just up`
+2. Confirm the app is alive:
+   - `curl http://127.0.0.1:8000/healthz`
+   - `curl http://127.0.0.1:8000/api/v1/reference/assessment-modes`
+3. Smoke the authored content surface as a mentor-like user:
+   - create a topic with `POST /api/v1/authored/topics`
+   - create a concept with `POST /api/v1/authored/concepts`
+   - create a question bundle with `POST /api/v1/authored/questions`
+   - fetch it back with `GET /api/v1/authored/questions/{question_id}`
+   - move it through `POST /api/v1/authored/questions/{question_id}/status` to `reviewed`
+   - move it through the same endpoint to `published`
+   - verify it appears in `GET /api/v1/authored/questions`
+4. Smoke the practice-session flow as a student:
+   - create a session with `POST /api/v1/practice-sessions`
+   - use a `source` like `pilot-smoke`
+   - include a `question_queue` with at least the published authored question id
+   - check `GET /api/v1/practice-sessions?status=created&source=pilot-smoke`
+   - use `started_after`, `started_before`, `current_question_id`, and `has_remaining` filters to narrow operator triage when needed
+   - start it with `POST /api/v1/practice-sessions/{session_id}/start`
+   - submit the authored attempt with `POST /api/v1/authored/questions/{question_id}/submit`
+   - inspect `GET /api/v1/practice-sessions/{session_id}` for queue counts and `current_question_id`
+   - complete it with `POST /api/v1/practice-sessions/{session_id}/complete`
+   - confirm `GET /api/v1/practice-sessions?status=completed&source=pilot-smoke`
+5. Clean up after the rehearsal:
+   - `just down`
+   - `just teardown-local` if you want to reset the local SQLite database
+
+Sprint 2 working spec:
+- [docs/sprint-2-pilot-readiness-and-content-operations.md](/home/iancwm/git/prep-dojo/docs/sprint-2-pilot-readiness-and-content-operations.md)

@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, Uuid, event, func, select
+from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, Uuid, cast, event, func, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -160,7 +160,9 @@ class PracticeSession(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     client_session_id: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="created")
     config_json: Mapped[dict] = mapped_column(JSON_TYPE, nullable=False, default=dict)
+    question_queue_json: Mapped[list[str]] = mapped_column(JSON_TYPE, nullable=False, default=list)
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -234,6 +236,61 @@ class ModuleProgress(Base):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+def _practice_session_question_identifiers(connection, session_id: uuid.UUID) -> list[str]:
+    return [
+        identifier
+        for (identifier,) in connection.execute(
+            select(func.coalesce(Question.external_id, cast(Question.id, String))).join(
+                StudentAttempt, StudentAttempt.question_id == Question.id
+            ).where(StudentAttempt.session_id == session_id).distinct()
+        )
+    ]
+
+
+def _sync_practice_session_lifecycle(connection, session_id: uuid.UUID) -> None:
+    row = connection.execute(
+        select(PracticeSession.completed_at, PracticeSession.question_queue_json).where(
+            PracticeSession.id == session_id
+        )
+    ).first()
+    if row is None:
+        return
+
+    completed_at, question_queue = row
+    if completed_at is not None:
+        return
+
+    queue = list(question_queue or [])
+    attempted_identifiers = _practice_session_question_identifiers(connection, session_id)
+
+    if queue and all(question_id in attempted_identifiers for question_id in queue):
+        connection.execute(
+            update(PracticeSession)
+            .where(PracticeSession.id == session_id)
+            .values(status="completed", completed_at=func.now())
+        )
+        return
+
+    if attempted_identifiers:
+        connection.execute(
+            update(PracticeSession)
+            .where(PracticeSession.id == session_id)
+            .values(status="in_progress")
+        )
+        return
+
+    connection.execute(
+        update(PracticeSession).where(PracticeSession.id == session_id).values(status="created")
+    )
+
+
+@event.listens_for(StudentAttempt, "after_insert")
+def _update_practice_session_lifecycle_after_attempt_insert(
+    mapper: object, connection, target: StudentAttempt
+) -> None:
+    _sync_practice_session_lifecycle(connection, target.session_id)
+
+
 @event.listens_for(Score, "before_insert")
 def _populate_score_rubric_lineage(mapper: object, connection, target: Score) -> None:
     if target.rubric_id is not None:
@@ -257,6 +314,27 @@ def _ensure_sqlite_lineage_columns() -> None:
         return
 
     inspector = inspect(default_engine)
+    if "practice_sessions" in inspector.get_table_names():
+        practice_session_columns = {column["name"] for column in inspector.get_columns("practice_sessions")}
+        with default_engine.begin() as connection:
+            if "status" not in practice_session_columns:
+                connection.execute(
+                    text("ALTER TABLE practice_sessions ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'created'")
+                )
+            if "question_queue_json" not in practice_session_columns:
+                connection.execute(
+                    text("ALTER TABLE practice_sessions ADD COLUMN question_queue_json JSON NOT NULL DEFAULT '[]'")
+                )
+            connection.execute(
+                text(
+                    """
+                    UPDATE practice_sessions
+                    SET question_queue_json = json(COALESCE(json_extract(config_json, '$.question_queue'), '[]'))
+                    WHERE question_queue_json IS NULL OR question_queue_json = '[]'
+                    """
+                )
+            )
+
     if "rubrics" in inspector.get_table_names():
         rubric_columns = {column["name"] for column in inspector.get_columns("rubrics")}
         if "version" not in rubric_columns:
