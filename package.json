@@ -1,0 +1,12 @@
+{
+  "name": "prep-dojo",
+  "private": true,
+  "version": "0.2.0",
+  "scripts": {
+    "dev": "npm --prefix web run dev",
+    "build": "npm --prefix web run build",
+    "typecheck": "npm --prefix web run typecheck",
+    "preview": "npm --prefix web run preview",
+    "install:web": "npm --prefix web install"
+  }
+}

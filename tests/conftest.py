@@ -9,8 +9,13 @@ from typing import Any
 import fastapi.testclient as fastapi_testclient
 from fastapi import HTTPException
 from pydantic import ValidationError
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.core.auth import ROLE_HEADER, get_request_auth_context, require_mentor_like_role
+from app.db.base import Base
+from app.db.session import get_session
 from app.main import (
     archive_authored_concept,
     archive_authored_topic,
@@ -25,6 +30,7 @@ from app.main import (
     get_valuation_reference_module,
     get_valuation_reference_progress,
     healthcheck,
+    readinesscheck,
     list_authored_concepts,
     list_assessment_modes,
     list_authored_questions,
@@ -55,7 +61,6 @@ from app.schemas.domain import (
     TopicCreate,
     TopicUpdate,
 )
-from app.db.session import get_session
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -64,11 +69,35 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 
+_DEFAULT_TEST_ENGINE = create_engine(
+    "sqlite://",
+    future=True,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+_DEFAULT_TEST_SESSION_LOCAL = sessionmaker(
+    bind=_DEFAULT_TEST_ENGINE,
+    autoflush=False,
+    autocommit=False,
+    expire_on_commit=False,
+)
+Base.metadata.create_all(bind=_DEFAULT_TEST_ENGINE)
+
+
+def _default_test_session():
+    session = _DEFAULT_TEST_SESSION_LOCAL()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
 class _LocalResponse:
-    def __init__(self, status_code: int, body: Any):
+    def __init__(self, status_code: int, body: Any, headers: dict[str, str] | None = None):
         self.status_code = status_code
         self._body = body
         self.text = json.dumps(body, default=str)
+        self.headers = headers or {}
 
     def json(self) -> Any:
         return self._body
@@ -76,7 +105,7 @@ class _LocalResponse:
 
 @contextmanager
 def _session_from_app(app):
-    session_factory = app.dependency_overrides.get(get_session, get_session)
+    session_factory = app.dependency_overrides.get(get_session, _default_test_session)
     session_gen = session_factory()
     session = next(session_gen)
     try:
@@ -95,6 +124,9 @@ class InProcessClient:
         self.app = app
 
     def __enter__(self):
+        if get_session not in self.app.dependency_overrides:
+            Base.metadata.drop_all(bind=_DEFAULT_TEST_ENGINE)
+            Base.metadata.create_all(bind=_DEFAULT_TEST_ENGINE)
         return self
 
     def __exit__(self, exc_type, exc, tb):
@@ -116,6 +148,8 @@ class InProcessClient:
         try:
             if method == "GET" and path == "/healthz":
                 return _LocalResponse(200, healthcheck())
+            if method == "GET" and path == "/readyz":
+                return _LocalResponse(200, readinesscheck())
             if method == "GET" and path == "/api/v1/reference/assessment-modes":
                 return _LocalResponse(200, list_assessment_modes())
             if method == "GET" and path == "/api/v1/reference/modules/valuation-enterprise-value":

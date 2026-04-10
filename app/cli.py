@@ -8,7 +8,7 @@ from alembic import command
 from alembic.config import Config
 
 from app.core.settings import get_settings
-from app.db.session import get_alembic_config_path
+from app.db.session import check_database_readiness, get_alembic_config_path
 
 
 def runserver() -> None:
@@ -32,12 +32,32 @@ def migrate_head() -> None:
     command.upgrade(Config(str(get_alembic_config_path())), "head")
 
 
+def check_readiness() -> None:
+    settings = get_settings()
+    report = check_database_readiness()
+    print(
+        json.dumps(
+            {
+                "app_environment": settings.app.environment,
+                "database_init_mode": settings.database.init_mode,
+                "database_ready": report.ready,
+                "message": report.message,
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
+    if not report.ready:
+        raise SystemExit(1)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Prep Dojo runtime helpers.")
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("runserver")
     subparsers.add_parser("show-config")
     subparsers.add_parser("migrate-head")
+    subparsers.add_parser("check-readiness")
 
     args = parser.parse_args()
     if args.command == "runserver":
@@ -48,6 +68,9 @@ def main() -> None:
         return
     if args.command == "migrate-head":
         migrate_head()
+        return
+    if args.command == "check-readiness":
+        check_readiness()
         return
 
     raise SystemExit(f"Unknown command: {args.command}")

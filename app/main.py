@@ -1,12 +1,24 @@
 from contextlib import asynccontextmanager
+import json
+import logging
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
-from app.core.auth import require_mentor_like_role
+from app.core.auth import ROLE_HEADER, require_mentor_like_role
+from app.core.observability import (
+    build_exception_log_payload,
+    build_request_log_payload,
+    finish_request_timer,
+    generate_request_id,
+    start_request_timer,
+)
 from app.core.settings import get_settings
-from app.db.session import get_session, init_db
+from app.db.session import check_database_readiness, get_session, init_db
 from app.schemas.domain import (
     AuthoredQuestionListFilters,
     AuthoredQuestionBundleCreate,
@@ -58,6 +70,7 @@ from app.services.practice_sessions import (
 from app.services.persistence import ensure_reference_catalog, persist_authored_attempt, persist_reference_attempt
 
 settings = get_settings()
+logger = logging.getLogger("prep_dojo.api")
 
 
 @asynccontextmanager
@@ -73,10 +86,125 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+        "http://127.0.0.1:4173",
+        "http://localhost:4173",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.middleware("http")
+async def add_request_observability(request: Request, call_next):
+    request_id = request.headers.get("X-Request-Id") or generate_request_id()
+    request.state.request_id = request_id
+    request.state.request_started_at_ns = start_request_timer()
+
+    response = None
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers["X-Request-Id"] = request_id
+        return response
+    finally:
+        timing = finish_request_timer(request.state.request_started_at_ns)
+        route_name = request.scope.get("route").name if request.scope.get("route") is not None else None
+        logger.info(
+            json.dumps(
+                build_request_log_payload(
+                    request_id=request_id,
+                    method=request.method,
+                    path=request.url.path,
+                    status_code=status_code,
+                    timing=timing,
+                    client_ip=request.client.host if request.client is not None else None,
+                    query_string=request.url.query or None,
+                    user_role=request.headers.get(ROLE_HEADER),
+                    extra={"route_name": route_name},
+                ),
+                sort_keys=True,
+            )
+        )
+
+
+def _build_error_body(detail) -> dict:
+    if isinstance(detail, dict):
+        return detail
+    return {"detail": detail}
+
+
+def _log_exception(request: Request, exception: Exception, *, status_code: int) -> None:
+    started_at_ns = getattr(request.state, "request_started_at_ns", start_request_timer())
+    timing = finish_request_timer(started_at_ns)
+    route_name = request.scope.get("route").name if request.scope.get("route") is not None else None
+    logger.warning(
+        json.dumps(
+            build_exception_log_payload(
+                request_id=getattr(request.state, "request_id", generate_request_id()),
+                exception=exception,
+                method=request.method,
+                path=request.url.path,
+                status_code=status_code,
+                timing=timing,
+                extra={"route_name": route_name},
+            ),
+            sort_keys=True,
+        )
+    )
+
+
+@app.exception_handler(HTTPException)
+async def handle_http_exception(request: Request, exc: HTTPException) -> JSONResponse:
+    _log_exception(request, exc, status_code=exc.status_code)
+    body = _build_error_body(exc.detail)
+    return JSONResponse(status_code=exc.status_code, content=body, headers={"X-Request-Id": request.state.request_id})
+
+
+@app.exception_handler(RequestValidationError)
+async def handle_request_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    _log_exception(request, exc, status_code=422)
+    return JSONResponse(
+        status_code=422,
+        content={"detail": exc.errors()},
+        headers={"X-Request-Id": request.state.request_id},
+    )
+
+
+@app.exception_handler(Exception)
+async def handle_unexpected_exception(request: Request, exc: Exception) -> JSONResponse:
+    _log_exception(request, exc, status_code=500)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error."},
+        headers={"X-Request-Id": request.state.request_id},
+    )
+
 
 @app.get("/healthz")
 def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/readyz")
+def readinesscheck() -> dict[str, str | bool]:
+    report = check_database_readiness()
+    payload = {
+        "status": "ok" if report.ready else "not_ready",
+        "app_environment": settings.app.environment,
+        "database_init_mode": settings.database.init_mode,
+        "database_ready": report.ready,
+        "message": report.message,
+    }
+    if not report.ready:
+        raise HTTPException(status_code=503, detail=payload)
+    return payload
 
 
 @app.get("/api/v1/reference/assessment-modes")

@@ -10,3 +10,7 @@ dist/
 build/
 prep_dojo.db
 .codex
+web/node_modules/
+web/dist/
+web/.vite/
+web/coverage/

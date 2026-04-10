@@ -263,6 +263,9 @@ class QuestionRecord(BaseModel):
     context: str | None = None
     payload: QuestionPayload
     version: int
+    last_status_transition_actor_role: str | None = None
+    last_status_transition_reason: str | None = None
+    last_status_transition_at: datetime | None = None
 
 
 class QuestionUpdate(BaseModel):
@@ -313,6 +316,8 @@ class ContentStatusTransitionRequest(BaseModel):
 
     status: ContentStatus
     review_notes: str | None = None
+    transition_actor_role: str | None = None
+    transition_reason: str | None = None
 
 
 class ContentStatusTransitionResult(BaseModel):
@@ -322,6 +327,9 @@ class ContentStatusTransitionResult(BaseModel):
     previous_status: ContentStatus
     current_status: ContentStatus
     review_notes: str | None = None
+    transition_actor_role: str | None = None
+    transition_reason: str | None = None
+    transitioned_at: datetime | None = None
 
 
 class AuthoredQuestionSummary(BaseModel):

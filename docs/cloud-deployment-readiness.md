@@ -1,23 +1,27 @@
 # Cloud Deployment Readiness
 
-This repo is still development-first, but it now has the minimum shape needed to stop baking local assumptions into the codebase.
+This repo is still pilot-first, but it now has a practical baseline that avoids the most common local-only assumptions without drifting into hyperscale platform work.
 
 ## What Is Ready
 
-- Runtime values are centralized in [config/app.toml](/Users/iancwm/git/prep-dojo/config/app.toml)
-- Environment overrides are documented in [.env.example](/Users/iancwm/git/prep-dojo/.env.example)
-- Local automation is codified in [justfile](/Users/iancwm/git/prep-dojo/justfile)
+- Runtime values are centralized in [config/app.toml](/home/iancwm/git/prep-dojo/config/app.toml)
+- Environment overrides are documented in [.env.example](/home/iancwm/git/prep-dojo/.env.example)
+- Local automation is codified in [justfile](/home/iancwm/git/prep-dojo/justfile)
 - The app already exposes a health endpoint at `/healthz`
+- The app now exposes a readiness endpoint at `/readyz`
+- The CLI can check DB reachability with `python -m app.cli check-readiness`
+- Non-development environments prefer migration-first DB initialization unless explicitly overridden
 - The server can bind to a cloud-provided port via `PORT`
 - The server host can be overridden to `0.0.0.0` via `DEPLOY_HOST` or `APP_HOST`
+- API responses propagate `X-Request-Id` and backend request/exception logs can be correlated by that id
 
 ## Config Surface
 
 Primary runtime config:
-- [config/app.toml](/Users/iancwm/git/prep-dojo/config/app.toml)
+- [config/app.toml](/home/iancwm/git/prep-dojo/config/app.toml)
 
 Deployment profile notes:
-- [config/deploy.toml](/Users/iancwm/git/prep-dojo/config/deploy.toml)
+- [config/deploy.toml](/home/iancwm/git/prep-dojo/config/deploy.toml)
 
 The intended precedence is:
 1. environment variables
@@ -26,16 +30,15 @@ The intended precedence is:
 
 ## What Still Blocks Production
 
-- No migration layer yet. Startup still relies on `Base.metadata.create_all()`.
+- No production entrypoint or platform manifest.
 - No production auth or secret management.
-- No container image, deployment manifest, or CI deploy pipeline.
-- No separation between dev and prod database lifecycle behavior.
-- No observability beyond process logs and `/healthz`.
+- No metrics endpoint or external error reporting integration.
+- No container image or CI deploy pipeline.
+- No formal secret management or auth deployment story.
 
 ## Recommended Next Steps
 
-1. Add Alembic and remove `create_all()` from production startup.
-2. Add a production entrypoint with `reload = false` and explicit worker strategy.
-3. Add structured logging and request-level error monitoring.
-4. Add secret-backed configuration for database credentials and future auth keys.
-5. Add a container or platform manifest after migrations exist.
+1. Add secret-backed configuration for production credentials and auth keys.
+2. Add one deployment artifact only after the target platform is known.
+3. Add lightweight metrics or external error reporting once a real deployment target exists.
+4. Keep the frontend same-origin or explicitly reverse-proxied so `/api` routing stays simple.

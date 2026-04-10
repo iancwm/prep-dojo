@@ -428,7 +428,12 @@ def test_authored_question_update_bumps_versions_and_resets_review_state(tmp_pat
             review_response = client.post(
                 f"/api/v1/authored/questions/{question_id}/status",
                 headers=MENTOR_HEADERS,
-                json={"status": "reviewed", "review_notes": "Reviewed for initial release."},
+                json={
+                    "status": "reviewed",
+                    "review_notes": "Reviewed for initial release.",
+                    "transition_actor_role": "academic",
+                    "transition_reason": "Reviewed for initial release.",
+                },
             )
             update_response = client.put(
                 f"/api/v1/authored/questions/{question_id}",
@@ -471,11 +476,17 @@ def test_authored_question_update_bumps_versions_and_resets_review_state(tmp_pat
             app.dependency_overrides.clear()
 
     assert review_response.status_code == 200
+    assert review_response.json()["transition_actor_role"] == "academic"
+    assert review_response.json()["transition_reason"] == "Reviewed for initial release."
+    assert review_response.json()["transitioned_at"] is not None
     assert update_response.status_code == 200
     updated_body = update_response.json()
     fetched_body = fetch_response.json()
     assert updated_body["question"]["version"] == 2
     assert updated_body["question"]["status"] == "draft"
+    assert updated_body["question"]["last_status_transition_actor_role"] == "system"
+    assert updated_body["question"]["last_status_transition_reason"] == "Question updated after review."
+    assert updated_body["question"]["last_status_transition_at"] is not None
     assert updated_body["question"]["difficulty"] == "intermediate"
     assert updated_body["question"]["prompt"] == "When would you discuss EV instead of equity value?"
     assert updated_body["rubric"]["criteria"][0]["name"] == "application"
@@ -484,6 +495,104 @@ def test_authored_question_update_bumps_versions_and_resets_review_state(tmp_pat
     assert updated_body["common_mistakes"][0]["mistake_text"] == "Equity value always replaces EV."
     assert fetched_body["question"]["version"] == 2
     assert fetched_body["question"]["status"] == "draft"
+    assert fetched_body["question"]["last_status_transition_actor_role"] == "system"
+    assert fetched_body["question"]["last_status_transition_reason"] == "Question updated after review."
+    assert fetched_body["question"]["last_status_transition_at"] is not None
+
+
+def test_authored_question_status_transitions_capture_audit_metadata(tmp_path: Path) -> None:
+    _configure_isolated_session(tmp_path)
+
+    with TestClient(app) as client:
+        try:
+            create_response = client.post(
+                "/api/v1/authored/questions",
+                headers=MENTOR_HEADERS,
+                json={
+                    "topic": {
+                        "slug": "valuation",
+                        "title": "Valuation",
+                        "description": "Valuation topics.",
+                    },
+                    "concept": {
+                        "topic_slug": "valuation",
+                        "slug": "capital-structure",
+                        "title": "Capital Structure",
+                        "definition": "How leverage changes valuation framing.",
+                        "difficulty": "foundational",
+                    },
+                    "question": {
+                        "concept_slug": "capital-structure",
+                        "assessment_mode": "short_answer",
+                        "difficulty": "foundational",
+                        "prompt": "Why does capital structure matter in valuation?",
+                        "payload": {
+                            "question_type": "short_answer",
+                            "prompt": "Why does capital structure matter in valuation?",
+                        },
+                    },
+                    "rubric": {
+                        "scoring_style": "rubric",
+                        "criteria": [{"name": "reasoning", "description": "Explains the bridge.", "weight": 1.0, "min_score": 0, "max_score": 4}],
+                        "thresholds": [{"band": "needs_review", "min_percentage": 0}],
+                    },
+                    "expected_answer": {
+                        "answer_text": "Capital structure affects the relationship between enterprise and equity value.",
+                        "key_points": ["debt", "cash", "ownership claims"],
+                    },
+                },
+            )
+            question_id = create_response.json()["question"]["id"]
+
+            review_response = client.post(
+                f"/api/v1/authored/questions/{question_id}/status",
+                headers=MENTOR_HEADERS,
+                json={
+                    "status": "reviewed",
+                    "review_notes": "Ready for publish.",
+                    "transition_actor_role": "academic",
+                    "transition_reason": "Ready for publish.",
+                },
+            )
+            publish_response = client.post(
+                f"/api/v1/authored/questions/{question_id}/status",
+                headers=MENTOR_HEADERS,
+                json={
+                    "status": "published",
+                    "transition_actor_role": "academic",
+                    "transition_reason": "Approved for pilot demo.",
+                },
+            )
+            archive_response = client.post(
+                f"/api/v1/authored/questions/{question_id}/status",
+                headers=MENTOR_HEADERS,
+                json={
+                    "status": "archived",
+                    "transition_actor_role": "academic",
+                    "transition_reason": "Retired after the demo run.",
+                },
+            )
+            fetched_response = client.get(f"/api/v1/authored/questions/{question_id}", headers=MENTOR_HEADERS)
+        finally:
+            app.dependency_overrides.clear()
+
+    assert review_response.status_code == 200
+    assert review_response.json()["transition_actor_role"] == "academic"
+    assert review_response.json()["transition_reason"] == "Ready for publish."
+    assert review_response.json()["transitioned_at"] is not None
+    assert publish_response.status_code == 200
+    assert publish_response.json()["transition_actor_role"] == "academic"
+    assert publish_response.json()["transition_reason"] == "Approved for pilot demo."
+    assert publish_response.json()["transitioned_at"] is not None
+    assert archive_response.status_code == 200
+    assert archive_response.json()["transition_actor_role"] == "academic"
+    assert archive_response.json()["transition_reason"] == "Retired after the demo run."
+    assert archive_response.json()["transitioned_at"] is not None
+    assert fetched_response.status_code == 200
+    assert fetched_response.json()["question"]["status"] == "archived"
+    assert fetched_response.json()["question"]["last_status_transition_actor_role"] == "academic"
+    assert fetched_response.json()["question"]["last_status_transition_reason"] == "Retired after the demo run."
+    assert fetched_response.json()["question"]["last_status_transition_at"] is not None
 
 
 def test_published_authored_question_cannot_be_edited(tmp_path: Path) -> None:
@@ -883,6 +992,9 @@ def test_archiving_concept_and_topic_cascades_to_child_questions(tmp_path: Path)
     assert archive_concept_response.json()["archived_question_count"] == 1
     assert question_after_concept_archive.status_code == 200
     assert question_after_concept_archive.json()["question"]["status"] == "archived"
+    assert question_after_concept_archive.json()["question"]["last_status_transition_actor_role"] == "system"
+    assert question_after_concept_archive.json()["question"]["last_status_transition_reason"] == "Archived via concept archive."
+    assert question_after_concept_archive.json()["question"]["last_status_transition_at"] is not None
 
     assert archive_topic_response.status_code == 200
     assert archive_topic_response.json()["current_status"] == "archived"
@@ -890,6 +1002,9 @@ def test_archiving_concept_and_topic_cascades_to_child_questions(tmp_path: Path)
     assert archive_topic_response.json()["archived_question_count"] == 1
     assert question_after_topic_archive.status_code == 200
     assert question_after_topic_archive.json()["question"]["status"] == "archived"
+    assert question_after_topic_archive.json()["question"]["last_status_transition_actor_role"] == "system"
+    assert question_after_topic_archive.json()["question"]["last_status_transition_reason"] == "Archived via topic archive."
+    assert question_after_topic_archive.json()["question"]["last_status_transition_at"] is not None
     assert any(item["slug"] == "technical" and item["status"] == "archived" for item in topics_response.json())
     assert any(item["slug"] == "debugging" and item["status"] == "archived" for item in concepts_response.json())
 

@@ -1,11 +1,12 @@
 set dotenv-load := true
 set export := true
-set shell := ["/bin/zsh", "-cu"]
+set shell := ["/bin/bash", "-lc"]
 
 config_path := env_var_or_default("APP_CONFIG_PATH", "config/app.toml")
 pid_file := env_var_or_default("APP_PID_FILE", ".run/prep-dojo.pid")
 log_file := env_var_or_default("APP_LOG_FILE", ".run/prep-dojo.log")
 local_sqlite_path := env_var_or_default("LOCAL_SQLITE_PATH", "prep_dojo.db")
+web_dir := "web"
 
 default:
   @just --list
@@ -14,6 +15,7 @@ bootstrap:
   #!/usr/bin/env bash
   set -euo pipefail
   uv sync --extra dev
+  npm --prefix {{web_dir}} install
   mkdir -p .run
   if [ ! -f .env ]; then cp .env.example .env; fi
 
@@ -22,6 +24,21 @@ config:
 
 test:
   APP_CONFIG_PATH={{config_path}} ./.venv/bin/pytest tests
+
+web-install:
+  npm --prefix {{web_dir}} install
+
+web-dev:
+  npm --prefix {{web_dir}} run dev
+
+web-build:
+  npm --prefix {{web_dir}} run build
+
+web-typecheck:
+  npm --prefix {{web_dir}} run typecheck
+
+web-preview:
+  npm --prefix {{web_dir}} run preview
 
 migrate:
   APP_CONFIG_PATH={{config_path}} ./.venv/bin/python -m app.cli migrate-head
