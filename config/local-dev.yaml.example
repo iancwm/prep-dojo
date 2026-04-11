@@ -1,0 +1,17 @@
+app_config_path: config/app.toml
+
+backend:
+  host: 127.0.0.1
+  port: 8010
+  reload: false
+  pid_file: .run/prep-dojo.pid
+  log_file: .run/prep-dojo.log
+
+frontend:
+  dev_port: 5173
+  preview_port: 4173
+
+database:
+  sqlite_path: prep_dojo.db
+  url: sqlite:///./prep_dojo.db
+  init_mode: migrations

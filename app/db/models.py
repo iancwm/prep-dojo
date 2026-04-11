@@ -93,6 +93,9 @@ class Question(Base):
     author_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     payload_json: Mapped[dict] = mapped_column(JSON_TYPE, nullable=False)
+    last_status_transition_actor_role: Mapped[str | None] = mapped_column(String(20))
+    last_status_transition_reason: Mapped[str | None] = mapped_column(Text)
+    last_status_transition_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

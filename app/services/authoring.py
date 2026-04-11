@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import delete, select
@@ -174,7 +175,11 @@ def archive_topic(session: Session, topic_slug: str) -> TopicArchiveResult:
     archived_concept_count = 0
     archived_question_count = 0
     for concept in topic.concepts:
-        concept_was_archived, concept_question_count = _archive_concept_tree(concept)
+        concept_was_archived, concept_question_count = _archive_concept_tree(
+            concept,
+            transition_actor_role="system",
+            transition_reason="Archived via topic archive.",
+        )
         archived_concept_count += int(concept_was_archived)
         archived_question_count += concept_question_count
 
@@ -242,7 +247,11 @@ def update_concept(session: Session, concept_slug: str, payload: ConceptUpdate) 
 def archive_concept(session: Session, concept_slug: str) -> ConceptArchiveResult:
     concept = _get_concept_row(session, concept_slug)
     previous_status = concept.status
-    _, archived_question_count = _archive_concept_tree(concept)
+    _, archived_question_count = _archive_concept_tree(
+        concept,
+        transition_actor_role="system",
+        transition_reason="Archived via concept archive.",
+    )
     session.commit()
     return ConceptArchiveResult(
         concept_slug=concept.slug,
@@ -263,15 +272,26 @@ def transition_authored_question_status(
 
     previous_status = question.status
     _validate_status_transition(question.status, payload.status.value)
-    if payload.status.value == "reviewed" and not payload.review_notes:
+    if payload.status.value == "reviewed" and not (payload.review_notes or payload.transition_reason):
         raise HTTPException(status_code=400, detail="Review notes are required when marking content as reviewed.")
     if payload.status.value == "published":
         _validate_publish_readiness(question)
 
+    review_notes = payload.review_notes or payload.transition_reason
+    transition_reason = payload.transition_reason or payload.review_notes or f"Marked {payload.status.value}."
+    transition_actor_role = payload.transition_actor_role or "system"
+    transitioned_at = datetime.now(timezone.utc)
+
     question.status = payload.status.value
     question.rubric.status = payload.status.value
-    if payload.review_notes is not None:
-        question.rubric.review_notes = payload.review_notes
+    if review_notes is not None:
+        question.rubric.review_notes = review_notes
+    _record_question_transition(
+        question,
+        actor_role=transition_actor_role,
+        reason=transition_reason,
+        transitioned_at=transitioned_at,
+    )
     _promote_parent_statuses(question, payload.status.value)
 
     session.commit()
@@ -279,7 +299,10 @@ def transition_authored_question_status(
         question_id=str(question.id),
         previous_status=previous_status,
         current_status=payload.status,
-        review_notes=payload.review_notes,
+        review_notes=review_notes,
+        transition_actor_role=transition_actor_role,
+        transition_reason=transition_reason,
+        transitioned_at=transitioned_at,
     )
 
 
@@ -334,6 +357,12 @@ def update_authored_question_bundle(
         question.status = "draft"
         question.rubric.status = "draft"
         question.rubric.review_notes = None
+        _record_question_transition(
+            question,
+            actor_role="system",
+            reason="Question updated after review.",
+            transitioned_at=datetime.now(timezone.utc),
+        )
 
     session.commit()
     session.refresh(question)
@@ -382,6 +411,9 @@ def get_authored_question_bundle(session: Session, question_id: str) -> Authored
             context=question.context,
             payload=question.payload_json,
             version=question.version,
+            last_status_transition_actor_role=question.last_status_transition_actor_role,
+            last_status_transition_reason=question.last_status_transition_reason,
+            last_status_transition_at=question.last_status_transition_at,
         ),
         rubric=RubricDefinition(
             criteria=[RubricCriterion.model_validate(item) for item in question.rubric.criteria_json],
@@ -433,7 +465,11 @@ def _get_authored_question_row(session: Session, question_id: str) -> Question:
     return question
 
 
-def _archive_concept_tree(concept: Concept) -> tuple[bool, int]:
+def _archive_concept_tree(
+    concept: Concept,
+    transition_actor_role: str,
+    transition_reason: str,
+) -> tuple[bool, int]:
     concept_was_archived = concept.status != "archived"
     concept.status = "archived"
 
@@ -444,6 +480,12 @@ def _archive_concept_tree(concept: Concept) -> tuple[bool, int]:
         question.status = "archived"
         if question.rubric is not None:
             question.rubric.status = "archived"
+        _record_question_transition(
+            question,
+            actor_role=transition_actor_role,
+            reason=transition_reason,
+            transitioned_at=datetime.now(timezone.utc),
+        )
 
     return concept_was_archived, archived_question_count
 
@@ -517,6 +559,18 @@ def _validate_mode_specific_publish_readiness(question: Question) -> None:
         target_duration_seconds = payload.get("target_duration_seconds")
         if target_duration_seconds is None:
             raise HTTPException(status_code=400, detail="Oral recall questions need a target duration before publishing.")
+
+
+def _record_question_transition(
+    question: Question,
+    *,
+    actor_role: str,
+    reason: str | None,
+    transitioned_at: datetime,
+) -> None:
+    question.last_status_transition_actor_role = actor_role
+    question.last_status_transition_reason = reason
+    question.last_status_transition_at = transitioned_at
 
 
 def _promote_parent_statuses(question: Question, target_status: str) -> None:
