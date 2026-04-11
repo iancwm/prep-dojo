@@ -57,6 +57,8 @@ Install dependencies:
 just bootstrap
 ```
 
+`just bootstrap` is idempotent. It installs Python and frontend deps, ensures the local runtime config exists, and backfills any newly added local-dev keys without overwriting your existing values.
+
 If you prefer to install manually:
 
 ```bash
@@ -70,6 +72,24 @@ Run the backend:
 
 ```bash
 just up
+```
+
+The local setup now reads its vital runtime values from:
+- [config/local-dev.yaml.example](/home/iancwm/git/prep-dojo/config/local-dev.yaml.example) as the checked-in template
+- `config/local-dev.yaml` as your local editable file, created automatically by `just bootstrap`
+
+Repeated local lifecycle commands are safe:
+- `just bootstrap` preserves your existing local overrides
+- `just up` clears stale PID files before restarting
+- `just down` succeeds even when nothing is running
+- `just teardown-local` removes only local runtime artifacts and tolerates missing files
+
+Useful local commands:
+
+```bash
+just local-config
+just status
+just logs
 ```
 
 Run tests:
@@ -89,6 +109,8 @@ Run the frontend demo:
 ```bash
 just web-dev
 ```
+
+If you need a different local port or local DB path, edit `config/local-dev.yaml` once and the backend, frontend proxy, migrate flow, config inspection, and teardown commands will all follow it.
 
 Build the frontend from the repo root:
 
@@ -120,6 +142,7 @@ Frontend dev server:
 - `http://127.0.0.1:5173`
 
 The backend now allows local frontend origins for Vite dev and preview.
+The frontend dev proxy follows the backend target derived from `config/local-dev.yaml`.
 
 ## Runtime Behavior
 
@@ -136,6 +159,7 @@ Override with:
 - `DATABASE_INIT_MODE`
 - `APP_CONFIG_PATH`
 - env vars from [.env.example](/home/iancwm/git/prep-dojo/.env.example)
+- local runtime defaults from `config/local-dev.yaml`
 
 The local database file is ignored in git.
 
@@ -144,6 +168,7 @@ The local database file is ignored in git.
 Main local commands:
 - `just bootstrap`
 - `just config`
+- `just local-config`
 - `just up`
 - `just down`
 - `just restart`
@@ -270,7 +295,7 @@ Use this as the local pilot simulation sequence before an internal rehearsal.
 
 Prereqs:
 - `APP_CONFIG_PATH=config/app.toml`
-- local API base URL: `http://127.0.0.1:8000`
+- local API base URL: `http://127.0.0.1:8001`
 - mentor-like role header for authored routes: `X-User-Role: academic`
 - student requests omit `X-User-Role` entirely
 
@@ -279,9 +304,9 @@ Prereqs:
    - `just migrate`
    - `just up`
 2. Confirm the app is alive:
-   - `curl http://127.0.0.1:8000/healthz`
-   - `curl http://127.0.0.1:8000/readyz`
-   - `curl http://127.0.0.1:8000/api/v1/reference/assessment-modes`
+   - `curl http://127.0.0.1:8001/healthz`
+   - `curl http://127.0.0.1:8001/readyz`
+   - `curl http://127.0.0.1:8001/api/v1/reference/assessment-modes`
 3. Smoke the authored content surface as a mentor-like user:
    - create a topic with `POST /api/v1/authored/topics`
    - create a concept with `POST /api/v1/authored/concepts`
@@ -313,8 +338,8 @@ Use this short checklist when you want confidence that the local developer basel
    - `just config`
    - `python -m app.cli check-readiness`
 2. Confirm liveness and readiness:
-   - `curl http://127.0.0.1:8000/healthz`
-   - `curl http://127.0.0.1:8000/readyz`
+   - `curl http://127.0.0.1:8001/healthz`
+   - `curl http://127.0.0.1:8001/readyz`
 3. Confirm the backend test baseline:
    - `just test`
 4. Confirm the frontend still compiles against the current API shape:

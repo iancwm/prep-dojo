@@ -1,7 +1,9 @@
+const defaultApiBaseUrl = "http://127.0.0.1:8010";
+
 export const appConfig = {
   brandName: "Prep Dojo",
   productLine: "Demo shell",
-  apiBaseUrl: "http://127.0.0.1:8000",
+  apiBaseUrl: import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_BACKEND_TARGET || defaultApiBaseUrl,
 };
 
 export const flowSteps = [

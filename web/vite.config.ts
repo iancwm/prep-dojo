@@ -1,30 +1,39 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
-const backendTarget = "http://127.0.0.1:8000";
+const defaultBackendTarget = "http://127.0.0.1:8010";
 
-export default defineConfig({
-  plugins: [react()],
-  resolve: {
-    alias: {
-      "@": path.resolve(__dirname, "./src"),
-    },
-  },
-  server: {
-    port: 5173,
-    proxy: {
-      "/api": {
-        target: backendTarget,
-        changeOrigin: true,
-      },
-      "/healthz": {
-        target: backendTarget,
-        changeOrigin: true,
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  const backendTarget = env.VITE_BACKEND_TARGET || defaultBackendTarget;
+
+  return {
+    plugins: [react()],
+    resolve: {
+      alias: {
+        "@": path.resolve(__dirname, "./src"),
       },
     },
-  },
-  preview: {
-    port: 4173,
-  },
+    server: {
+      port: 5173,
+      proxy: {
+        "/api": {
+          target: backendTarget,
+          changeOrigin: true,
+        },
+        "/healthz": {
+          target: backendTarget,
+          changeOrigin: true,
+        },
+        "/readyz": {
+          target: backendTarget,
+          changeOrigin: true,
+        },
+      },
+    },
+    preview: {
+      port: 4173,
+    },
+  };
 });
