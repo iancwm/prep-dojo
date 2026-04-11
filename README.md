@@ -112,6 +112,17 @@ just web-dev
 
 If you need a different local port or local DB path, edit `config/local-dev.yaml` once and the backend, frontend proxy, migrate flow, config inspection, and teardown commands will all follow it.
 
+Run the frontend smoke tests:
+
+```bash
+just web-test
+```
+
+The frontend test baseline uses Vitest plus Testing Library and currently covers:
+- operator review, publish, and demo-session creation
+- student session start, answer submission, and result rendering
+- result-page fallback and return flow
+
 Build the frontend from the repo root:
 
 ```bash
@@ -179,6 +190,7 @@ Main local commands:
 - `just web-install`
 - `just web-dev`
 - `just web-build`
+- `just web-test`
 - `just web-typecheck`
 - `just web-preview`
 - `just teardown-local`
@@ -344,6 +356,8 @@ Use this short checklist when you want confidence that the local developer basel
    - `just test`
 4. Confirm the frontend still compiles against the current API shape:
    - `just web-build`
+5. Confirm the frontend smoke tests still pass:
+   - `just web-test`
 5. If you are using a non-development environment value, sanity-check that reload is off and DB init mode resolves to migrations:
    - `APP_ENV=production python -m app.cli show-config`
 

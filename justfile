@@ -60,6 +60,9 @@ web-build:
   backend_target=$(./.venv/bin/python -m app.cli get-local-dev-config frontend.backend_target --path {{local_dev_config_path}})
   VITE_BACKEND_TARGET="$backend_target" npm --prefix {{web_dir}} run build
 
+web-test:
+  npm --prefix {{web_dir}} test
+
 web-typecheck:
   npm --prefix {{web_dir}} run typecheck
 

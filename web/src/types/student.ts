@@ -1,4 +1,4 @@
-import type { FeedbackResult, MasteryBand, ScoreResult } from "./api";
+import type { MasteryBand, ScoreResult } from "./api";
 
 export type SessionStatus = "created" | "in_progress" | "completed";
 
@@ -40,6 +40,13 @@ export interface StudentAttemptSummary {
   masteryBand: MasteryBand;
 }
 
+export interface StudentCriterionScore {
+  criterionName: string;
+  score: number;
+  maxScore: number;
+  notes?: string | null;
+}
+
 export interface StudentAnswerDraft {
   responseType: StudentResponseType;
   selectedOptionId?: string;
@@ -71,13 +78,15 @@ export interface StudentResult {
     overallScore: ScoreResult["overall_score"];
     masteryBand: ScoreResult["mastery_band"];
     scoringMethod: ScoreResult["scoring_method"];
-    criterionScores: Array<{
-      criterionName: string;
-      score: number;
-      maxScore: number;
-      notes?: string | null;
-    }>;
+    criterionScores: StudentCriterionScore[];
   };
-  feedback: FeedbackResult;
+  feedback: StudentFeedbackResult;
   completedAt: string;
+}
+
+export interface StudentFeedbackResult {
+  strengths: string[];
+  gaps: string[];
+  nextStep: string;
+  remediationHints: string[];
 }

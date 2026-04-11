@@ -4,7 +4,13 @@ import type {
   PracticeSessionRecord,
   PracticeSessionStatus,
 } from "../types/api";
-import type { StudentAnswerDraft, StudentQuestion, StudentResult, StudentSession } from "../types/student";
+import type {
+  StudentAnswerDraft,
+  StudentFeedbackResult,
+  StudentQuestion,
+  StudentResult,
+  StudentSession,
+} from "../types/student";
 
 const RESULT_CACHE_PREFIX = "prep-dojo.practice.result";
 
@@ -104,10 +110,10 @@ export function buildStudentResult(
         criterionName: criterion.criterion_name,
         score: criterion.score,
         maxScore: criterion.max_score,
-        notes: criterion.notes ?? undefined,
-      })),
+          notes: criterion.notes ?? undefined,
+        })),
     },
-    feedback: result.feedback,
+    feedback: mapFeedback(result.feedback),
     completedAt: new Date().toISOString(),
   };
 }
@@ -123,7 +129,7 @@ export function loadStudentResult(sessionId: string): StudentResult | null {
   }
 
   try {
-    return JSON.parse(raw) as StudentResult;
+    return normalizeStoredResult(JSON.parse(raw) as StudentResult);
   } catch {
     return null;
   }
@@ -167,4 +173,30 @@ function normalizeResponseType(value: string): StudentQuestion["responseType"] {
   }
 
   return "free_text";
+}
+
+function mapFeedback(feedback: AttemptSubmitResult["feedback"]): StudentFeedbackResult {
+  return {
+    strengths: feedback.strengths,
+    gaps: feedback.gaps,
+    nextStep: feedback.next_step,
+    remediationHints: feedback.remediation_hints,
+  };
+}
+
+function normalizeStoredResult(result: StudentResult): StudentResult {
+  const feedback = result.feedback as unknown as Record<string, unknown>;
+
+  if ("nextStep" in feedback && "remediationHints" in feedback) {
+    return result;
+  }
+
+  if ("next_step" in feedback || "remediation_hints" in feedback) {
+    return {
+      ...result,
+      feedback: mapFeedback(feedback as unknown as AttemptSubmitResult["feedback"]),
+    };
+  }
+
+  return result;
 }
